@@ -1,0 +1,49 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+venv/
+.venv/
+*.egg-info/
+.env
+*.db
+*.sqlite3
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+.env.local
+.env*.local
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+
+# Misc
+*.log
+dist/
+build/
+
+# Unrelated projects in this directory
+chess/
+crypto-tax/
+C/
+
+# Claude Code local settings
+.claude/
+
+# Uploaded evidence files
+backend/uploads/
+
+# Data CSVs (large source files)
+backend/data/*.csv

@@ -4,9 +4,9 @@ import { useParams, useRouter } from "next/navigation";
 import AppShell from "@/components/AppShell";
 import StatusBadge from "@/components/StatusBadge";
 import FrameworkBadge from "@/components/FrameworkBadge";
-import { controlsApi, risksApi } from "@/lib/api";
+import { controlsApi, risksApi, exceptionsApi } from "@/lib/api";
 import { getUser } from "@/lib/auth";
-import type { Control, ControlCycleHistory, Risk, SoxItgcDomain } from "@/types";
+import type { Control, ControlCycleHistory, Risk, SoxItgcDomain, ControlException, ExceptionStatus } from "@/types";
 import { ArrowLeftIcon, PencilSquareIcon, TrashIcon, CheckIcon, XMarkIcon, PaperClipIcon } from "@heroicons/react/24/outline";
 import Link from "next/link";
 
@@ -42,6 +42,7 @@ export default function ControlDetailPage() {
   const [ctrl, setCtrl]       = useState<Control | null>(null);
   const [cycles, setCycles]   = useState<ControlCycleHistory[]>([]);
   const [linkedRisks, setLinkedRisks] = useState<Risk[]>([]);
+  const [controlExceptions, setControlExceptions] = useState<ControlException[]>([]);
   const [editing, setEditing] = useState(false);
   const [form, setForm]       = useState({ control_id: "", title: "", description: "", owner: "", status: "active", control_type: "", frequency: "", sox_in_scope: false, sox_itgc_domain: "", sox_systems: "", sox_assertions: "" });
 
@@ -65,6 +66,7 @@ export default function ControlDetailPage() {
     });
     controlsApi.cycles(numId).then((r) => setCycles(r.data));
     risksApi.forControl(numId).then((r) => setLinkedRisks(r.data)).catch(() => setLinkedRisks([]));
+    exceptionsApi.list({ control_id: numId }).then((r) => setControlExceptions(r.data)).catch(() => setControlExceptions([]));
   }, [id]);
 
   const save = async () => {
@@ -462,6 +464,59 @@ export default function ControlDetailPage() {
                     </div>
                   </div>
                 ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Control Exceptions */}
+        {ctrl && (
+          <div className="bg-white rounded-xl border border-gray-200 p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-sm font-semibold text-gray-700">Exceptions &amp; Risk Acceptances</h2>
+              <Link
+                href={`/exceptions`}
+                className="text-xs text-brand-600 hover:underline"
+              >
+                Manage all →
+              </Link>
+            </div>
+            {controlExceptions.length === 0 ? (
+              <p className="text-sm text-gray-400">No exceptions recorded for this control.</p>
+            ) : (
+              <div className="space-y-2">
+                {controlExceptions.map((exc) => {
+                  const statusStyles: Record<ExceptionStatus, string> = {
+                    draft:            "bg-gray-100 text-gray-600",
+                    pending_approval: "bg-yellow-100 text-yellow-700",
+                    approved:         "bg-green-100 text-green-700",
+                    rejected:         "bg-red-100 text-red-700",
+                    expired:          "bg-slate-100 text-slate-500",
+                  };
+                  const riskColors: Record<string, string> = {
+                    critical: "text-red-700 bg-red-50 border-red-200",
+                    high:     "text-orange-700 bg-orange-50 border-orange-200",
+                    medium:   "text-yellow-700 bg-yellow-50 border-yellow-200",
+                    low:      "text-green-700 bg-green-50 border-green-200",
+                  };
+                  return (
+                    <div key={exc.id} className="flex items-start gap-3 p-3 rounded-lg border border-gray-100 bg-gray-50">
+                      <span className={`mt-0.5 shrink-0 inline-flex items-center px-2 py-0.5 rounded border text-xs font-semibold uppercase ${riskColors[exc.risk_level]}`}>
+                        {exc.risk_level}
+                      </span>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-gray-800">{exc.title}</p>
+                        <p className="text-xs text-gray-500 mt-0.5 truncate">{exc.justification}</p>
+                        {exc.expiry_date && (
+                          <p className="text-xs text-gray-400 mt-0.5">Expires {new Date(exc.expiry_date).toLocaleDateString()}</p>
+                        )}
+                      </div>
+                      <span className={`shrink-0 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${statusStyles[exc.status]}`}>
+                        {exc.status.replace("_", " ")}
+                      </span>
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>

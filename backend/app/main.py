@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.db.database import Base, engine
 from app.models import models  # noqa: F401 — ensures models are registered before create_all
-from app.routers import auth, users, controls, test_cycles, evidence, dashboard, deficiencies, assets, threats, risks, exports
+from app.routers import auth, users, controls, test_cycles, evidence, dashboard, deficiencies, assets, threats, risks, exports, exceptions
 
 # Create all tables on startup (SQLite / demo only)
 Base.metadata.create_all(bind=engine)
@@ -34,6 +34,7 @@ app.include_router(assets.router)
 app.include_router(threats.router)
 app.include_router(risks.router)
 app.include_router(exports.router)
+app.include_router(exceptions.router)
 
 
 @app.get("/health")

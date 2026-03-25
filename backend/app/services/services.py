@@ -209,8 +209,9 @@ class DashboardService:
         self.cycle_repo = TestCycleRepository(db)
         self.assign_repo = AssignmentRepository(db)
         self.evidence_repo = EvidenceRepository(db)
-        from app.repositories.repositories import DeficiencyRepository
+        from app.repositories.repositories import DeficiencyRepository, ControlExceptionRepository
         self.deficiency_repo = DeficiencyRepository(db)
+        self.exception_repo = ControlExceptionRepository(db)
 
     def _pci_testing_breakdown(self, all_controls):
         """
@@ -284,6 +285,20 @@ class DashboardService:
             "deficiency_remediated": def_counts.get("remediated", 0),
             "deficiency_risk_accepted": def_counts.get("risk_accepted", 0),
             "pci_testing": self._pci_testing_breakdown(all_controls),
+            **self._exception_stats(),
+        }
+
+    def _exception_stats(self):
+        from datetime import date, timedelta
+        all_exc = self.exception_repo.get_all()
+        soon = date.today() + timedelta(days=30)
+        return {
+            "exception_pending":  sum(1 for e in all_exc if e.status == "pending_approval"),
+            "exception_approved": sum(1 for e in all_exc if e.status == "approved"),
+            "exception_expiring_soon": sum(
+                1 for e in all_exc
+                if e.status == "approved" and e.expiry_date and e.expiry_date <= soon
+            ),
         }
 
 

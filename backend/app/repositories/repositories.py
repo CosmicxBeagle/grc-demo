@@ -2,7 +2,7 @@ from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import func
 from datetime import datetime
 from typing import Optional
-from app.models.models import User, Control, ControlMapping, TestCycle, TestAssignment, Evidence, Deficiency, Asset, Threat, Risk, RiskControl
+from app.models.models import User, Control, ControlMapping, TestCycle, TestAssignment, Evidence, Deficiency, Asset, Threat, Risk, RiskControl, ControlException
 
 
 # ── User Repository ────────────────────────────────────────────────────────
@@ -408,3 +408,49 @@ class RiskRepository:
             .filter(RiskControl.control_id == control_id)
             .all()
         )
+
+
+# ── Control Exception Repository ───────────────────────────────────────────
+
+class ControlExceptionRepository:
+    def __init__(self, db: Session):
+        self.db = db
+
+    def _base_query(self):
+        return (
+            self.db.query(ControlException)
+            .options(
+                joinedload(ControlException.control).joinedload(Control.mappings),
+                joinedload(ControlException.requester),
+                joinedload(ControlException.approver),
+            )
+        )
+
+    def get_all(self, status: str = None, control_id: int = None):
+        q = self._base_query()
+        if status:
+            q = q.filter(ControlException.status == status)
+        if control_id:
+            q = q.filter(ControlException.control_id == control_id)
+        return q.order_by(ControlException.created_at.desc()).all()
+
+    def get_by_id(self, exception_id: int):
+        return self._base_query().filter(ControlException.id == exception_id).first()
+
+    def create(self, data: dict) -> ControlException:
+        exc = ControlException(**data)
+        self.db.add(exc)
+        self.db.commit()
+        self.db.refresh(exc)
+        return self.get_by_id(exc.id)
+
+    def update(self, exc: ControlException, data: dict) -> ControlException:
+        for k, v in data.items():
+            setattr(exc, k, v)
+        self.db.commit()
+        self.db.refresh(exc)
+        return self.get_by_id(exc.id)
+
+    def delete(self, exc: ControlException):
+        self.db.delete(exc)
+        self.db.commit()

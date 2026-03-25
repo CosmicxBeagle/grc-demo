@@ -250,6 +250,53 @@ class DashboardStats(BaseModel):
     deficiency_remediated: int
     deficiency_risk_accepted: int
     pci_testing: PciTestingBreakdown = PciTestingBreakdown()
+    exception_pending: int = 0
+    exception_approved: int = 0
+    exception_expiring_soon: int = 0   # approved, expiry within 30 days
+
+
+# ── Control Exceptions ─────────────────────────────────────────────────────
+
+EXCEPTION_TYPES   = ["exception", "risk_acceptance", "compensating_control"]
+EXCEPTION_STATUSES = ["draft", "pending_approval", "approved", "rejected", "expired"]
+EXCEPTION_RISK_LEVELS = ["critical", "high", "medium", "low"]
+
+class ControlExceptionBase(BaseModel):
+    title: str
+    exception_type: str = "exception"
+    justification: str
+    compensating_control: Optional[str] = None
+    risk_level: str = "high"
+    expiry_date: Optional[date] = None
+
+class ControlExceptionCreate(ControlExceptionBase):
+    control_id: int
+    requested_by: Optional[int] = None
+
+class ControlExceptionUpdate(BaseModel):
+    title: Optional[str] = None
+    exception_type: Optional[str] = None
+    justification: Optional[str] = None
+    compensating_control: Optional[str] = None
+    risk_level: Optional[str] = None
+    status: Optional[str] = None
+    approved_by: Optional[int] = None
+    approver_notes: Optional[str] = None
+    expiry_date: Optional[date] = None
+
+class ControlExceptionOut(ControlExceptionBase):
+    id: int
+    control_id: int
+    status: str
+    requested_by: Optional[int] = None
+    approved_by: Optional[int] = None
+    approver_notes: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+    requester: Optional[UserOut] = None
+    approver: Optional[UserOut] = None
+    control: Optional["ControlSummary"] = None
+    model_config = {"from_attributes": True}
 
 
 # ── Control Cycle History ───────────────────────────────────────────────────

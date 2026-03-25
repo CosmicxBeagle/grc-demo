@@ -206,6 +206,30 @@ export interface PciTestingBreakdown {
   failed: number;
 }
 
+export type ExceptionType   = "exception" | "risk_acceptance" | "compensating_control";
+export type ExceptionStatus = "draft" | "pending_approval" | "approved" | "rejected" | "expired";
+export type ExceptionRiskLevel = "critical" | "high" | "medium" | "low";
+
+export interface ControlException {
+  id: number;
+  control_id: number;
+  title: string;
+  exception_type: ExceptionType;
+  justification: string;
+  compensating_control?: string;
+  risk_level: ExceptionRiskLevel;
+  status: ExceptionStatus;
+  requested_by?: number;
+  approved_by?: number;
+  approver_notes?: string;
+  expiry_date?: string;
+  created_at: string;
+  updated_at: string;
+  requester?: { id: number; display_name: string; email: string; role: string };
+  approver?:  { id: number; display_name: string; email: string; role: string };
+  control?: { id: number; control_id: string; title: string; status: string };
+}
+
 export interface DashboardStats {
   total_controls: number;
   active_controls: number;
@@ -224,4 +248,7 @@ export interface DashboardStats {
   deficiency_remediated: number;
   deficiency_risk_accepted: number;
   pci_testing: PciTestingBreakdown;
+  exception_pending: number;
+  exception_approved: number;
+  exception_expiring_soon: number;
 }

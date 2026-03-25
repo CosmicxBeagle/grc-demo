@@ -147,3 +147,21 @@ export const risksApi = {
   unlinkControl: (riskId: number, controlId: number) => client.delete(`/risks/${riskId}/controls/${controlId}`),
   forControl:    (controlId: number)         => client.get<Risk[]>(`/risks/by-control/${controlId}`),
 };
+
+// ── Control Exceptions ───────────────────────────────────────────────────────
+export const exceptionsApi = {
+  list:       (params?: { status?: string; control_id?: number }) =>
+                client.get<import("@/types").ControlException[]>("/exceptions", { params }),
+  get:        (id: number) =>
+                client.get<import("@/types").ControlException>(`/exceptions/${id}`),
+  create:     (data: unknown) =>
+                client.post<import("@/types").ControlException>("/exceptions", data),
+  update:     (id: number, data: unknown) =>
+                client.patch<import("@/types").ControlException>(`/exceptions/${id}`, data),
+  approve:    (id: number, approverId: number, notes?: string) =>
+                client.post(`/exceptions/${id}/approve`, null, { params: { approver_id: approverId, approver_notes: notes } }),
+  reject:     (id: number, approverId: number, notes?: string) =>
+                client.post(`/exceptions/${id}/reject`, null, { params: { approver_id: approverId, approver_notes: notes } }),
+  delete:     (id: number) =>
+                client.delete(`/exceptions/${id}`),
+};

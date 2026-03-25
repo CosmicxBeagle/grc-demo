@@ -84,6 +84,43 @@ export default function DashboardPage() {
           <StatCard label="Evidence Files"     value={stats.total_evidence}     />
         </div>
 
+        {/* Exceptions alert row — only shown when there's something to act on */}
+        {(stats.exception_pending > 0 || stats.exception_expiring_soon > 0) && (
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <a href="/exceptions" className="group flex items-center gap-4 bg-white border border-yellow-200 rounded-xl p-5 hover:shadow-sm transition-shadow">
+              <div className="w-10 h-10 rounded-lg bg-yellow-100 flex items-center justify-center shrink-0">
+                <svg className="w-5 h-5 text-yellow-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" /></svg>
+              </div>
+              <div>
+                <p className="text-2xl font-bold text-gray-900">{stats.exception_pending}</p>
+                <p className="text-xs text-gray-500">Exceptions Awaiting Approval</p>
+              </div>
+            </a>
+
+            <a href="/exceptions?status=approved" className="group flex items-center gap-4 bg-white border border-green-200 rounded-xl p-5 hover:shadow-sm transition-shadow">
+              <div className="w-10 h-10 rounded-lg bg-green-100 flex items-center justify-center shrink-0">
+                <svg className="w-5 h-5 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+              </div>
+              <div>
+                <p className="text-2xl font-bold text-gray-900">{stats.exception_approved}</p>
+                <p className="text-xs text-gray-500">Active Approved Exceptions</p>
+              </div>
+            </a>
+
+            {stats.exception_expiring_soon > 0 && (
+              <a href="/exceptions" className="group flex items-center gap-4 bg-white border border-red-200 rounded-xl p-5 hover:shadow-sm transition-shadow">
+                <div className="w-10 h-10 rounded-lg bg-red-100 flex items-center justify-center shrink-0">
+                  <svg className="w-5 h-5 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                </div>
+                <div>
+                  <p className="text-2xl font-bold text-red-600">{stats.exception_expiring_soon}</p>
+                  <p className="text-xs text-gray-500">Exceptions Expiring Within 30 Days</p>
+                </div>
+              </a>
+            )}
+          </div>
+        )}
+
         {/* Charts row */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Testing status pie */}

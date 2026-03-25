@@ -66,6 +66,7 @@ class Control(Base):
     mappings = relationship("ControlMapping", back_populates="control", cascade="all, delete-orphan")
     assignments = relationship("TestAssignment", back_populates="control")
     risk_controls = relationship("RiskControl", back_populates="control", cascade="all, delete-orphan")
+    exceptions = relationship("ControlException", back_populates="control", cascade="all, delete-orphan")
 
 
 class ControlMapping(Base):
@@ -186,3 +187,34 @@ class RiskControl(Base):
 
     risk = relationship("Risk", back_populates="controls")
     control = relationship("Control", back_populates="risk_controls")
+
+
+class ControlException(Base):
+    __tablename__ = "control_exceptions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    control_id = Column(Integer, ForeignKey("controls.id"), nullable=False)
+
+    title          = Column(String(200), nullable=False)
+    exception_type = Column(String(30), nullable=False, default="exception")
+    # exception | risk_acceptance | compensating_control
+
+    justification        = Column(Text, nullable=False)
+    compensating_control = Column(Text)   # what alternative mitigates the risk
+    risk_level           = Column(String(20), default="high")
+    # critical / high / medium / low  — residual risk while exception is active
+
+    status       = Column(String(30), nullable=False, default="pending_approval")
+    # draft | pending_approval | approved | rejected | expired
+
+    requested_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    approved_by  = Column(Integer, ForeignKey("users.id"), nullable=True)
+    approver_notes = Column(Text)
+
+    expiry_date  = Column(Date, nullable=True)
+    created_at   = Column(DateTime, default=datetime.utcnow)
+    updated_at   = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    control   = relationship("Control", back_populates="exceptions")
+    requester = relationship("User", foreign_keys=[requested_by])
+    approver  = relationship("User", foreign_keys=[approved_by])

@@ -14,6 +14,7 @@ import {
   BoltIcon,
   ScaleIcon,
   DocumentCheckIcon,
+  ArchiveBoxXMarkIcon,
 } from "@heroicons/react/24/outline";
 
 const nav = [
@@ -23,6 +24,7 @@ const nav = [
   { href: "/test-cycles",  label: "Test Cycles",     icon: ClipboardDocumentListIcon },
   { href: "/evidence",     label: "Evidence",        icon: PaperClipIcon },
   { href: "/deficiencies", label: "Deficiencies",    icon: ExclamationTriangleIcon },
+  { href: "/exceptions",   label: "Exceptions",       icon: ArchiveBoxXMarkIcon },
 ];
 
 const riskNav = [

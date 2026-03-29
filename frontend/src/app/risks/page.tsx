@@ -11,9 +11,11 @@ import {
   Cell,
   ReferenceLine,
 } from "recharts";
-import { risksApi, assetsApi, threatsApi, controlsApi, downloadExport } from "@/lib/api";
+import { risksApi, assetsApi, threatsApi, controlsApi, usersApi, downloadExport } from "@/lib/api";
 import { getUser } from "@/lib/auth";
-import type { Risk, Asset, Threat, Control } from "@/types";
+import type { Risk, Asset, Threat, Control, User } from "@/types";
+import TreatmentPlanPanel from "@/components/TreatmentPlanPanel";
+import AppShell from "@/components/AppShell";
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -111,6 +113,7 @@ const EMPTY_FORM = {
   treatment: "mitigate",
   status: "open",
   owner: "",
+  owner_id: "",
 };
 
 // ── Main Page ─────────────────────────────────────────────────────────────
@@ -120,6 +123,7 @@ export default function RisksPage() {
   const [assets, setAssets] = useState<Asset[]>([]);
   const [threats, setThreats] = useState<Threat[]>([]);
   const [controls, setControls] = useState<Control[]>([]);
+  const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<Filter>("all");
   const [showForm, setShowForm] = useState(false);
@@ -137,16 +141,18 @@ export default function RisksPage() {
 
   const load = useCallback(async () => {
     try {
-      const [rRes, aRes, tRes, cRes] = await Promise.all([
+      const [rRes, aRes, tRes, cRes, uRes] = await Promise.all([
         risksApi.list(),
         assetsApi.list(),
         threatsApi.list(),
         controlsApi.list(),
+        usersApi.list(),
       ]);
       setRisks(rRes.data);
       setAssets(aRes.data);
       setThreats(tRes.data);
       setControls(cRes.data);
+      setUsers(uRes.data);
     } catch {
       setError("Failed to load data");
     } finally {
@@ -188,6 +194,7 @@ export default function RisksPage() {
       treatment: r.treatment ?? "mitigate",
       status: r.status,
       owner: r.owner ?? "",
+      owner_id: r.owner_id ? String(r.owner_id) : "",
     });
     setShowForm(true);
     setExpandedId(null);
@@ -208,6 +215,7 @@ export default function RisksPage() {
         treatment: form.treatment,
         status: form.status,
         owner: form.owner || null,
+        owner_id: form.owner_id ? Number(form.owner_id) : null,
       };
       if (editId) {
         await risksApi.update(editId, payload);
@@ -269,6 +277,7 @@ export default function RisksPage() {
   const previewScore = Number(form.likelihood) * Number(form.impact);
 
   return (
+    <AppShell>
     <div className="p-6 max-w-7xl mx-auto">
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
@@ -500,7 +509,7 @@ export default function RisksPage() {
               </select>
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Owner</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Owner (text label)</label>
               <input
                 type="text"
                 value={form.owner}
@@ -508,6 +517,23 @@ export default function RisksPage() {
                 className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 placeholder="e.g. Security Team"
               />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Assigned Owner <span className="text-gray-400 font-normal">(for review emails)</span>
+              </label>
+              <select
+                value={form.owner_id}
+                onChange={e => setForm({ ...form, owner_id: e.target.value })}
+                className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="">— No assigned owner —</option>
+                {users.map(u => (
+                  <option key={u.id} value={u.id}>
+                    {u.display_name} ({u.role})
+                  </option>
+                ))}
+              </select>
             </div>
             <div className="flex items-center">
               <div className={`px-3 py-2 rounded-md text-sm font-semibold ${scoreBgClass(previewScore)}`}>
@@ -588,6 +614,11 @@ export default function RisksPage() {
                     <td className="px-4 py-3">
                       <div className="font-medium text-gray-900">{risk.name}</div>
                       {risk.owner && <div className="text-xs text-gray-400 mt-0.5">{risk.owner}</div>}
+                      {risk.owner_id && (
+                        <div className="text-xs text-brand-600 mt-0.5">
+                          {users.find(u => u.id === risk.owner_id)?.display_name ?? `Owner #${risk.owner_id}`}
+                        </div>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-gray-600 text-xs">
                       {risk.asset ? risk.asset.name : <span className="text-gray-300">-</span>}
@@ -617,6 +648,13 @@ export default function RisksPage() {
                       </span>
                     </td>
                     <td className="px-4 py-3 text-right" onClick={e => e.stopPropagation()}>
+                      <a
+                        href={`/risk-reviews/history/${risk.id}`}
+                        className="text-purple-600 hover:text-purple-800 text-xs font-medium mr-3"
+                        onClick={e => e.stopPropagation()}
+                      >
+                        History
+                      </a>
                       {isAdmin && (
                         <>
                           <button
@@ -640,6 +678,7 @@ export default function RisksPage() {
                   {expandedId === risk.id && (
                     <tr key={`${risk.id}-detail`}>
                       <td colSpan={8} className="px-6 py-4 bg-blue-50 border-b border-blue-100">
+                        <div className="space-y-4">
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                           {/* Left: Details */}
                           <div>
@@ -728,6 +767,17 @@ export default function RisksPage() {
                             )}
                           </div>
                         </div>
+
+                        {/* Treatment Plan */}
+                        <div>
+                          <h3 className="text-sm font-semibold text-gray-800 mb-2">Treatment Plan</h3>
+                          <TreatmentPlanPanel
+                            riskId={risk.id}
+                            users={users}
+                            canEdit={isAdmin}
+                          />
+                        </div>
+                        </div>
                       </td>
                     </tr>
                   )}
@@ -738,5 +788,6 @@ export default function RisksPage() {
         </div>
       )}
     </div>
+    </AppShell>
   );
 }

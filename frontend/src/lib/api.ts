@@ -3,10 +3,10 @@ import { getToken, clearSession } from "./auth";
 import type {
   User, Control, TestCycle, TestCycleSummary,
   TestAssignment, DashboardStats, ControlCycleHistory, Deficiency,
-  Asset, Threat, Risk,
+  Asset, Threat, Risk, TreatmentPlan, TreatmentMilestone,
 } from "@/types";
 
-const BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+const BASE = process.env.NEXT_PUBLIC_API_URL ?? "/api";
 
 const client = axios.create({ baseURL: BASE });
 
@@ -30,12 +30,38 @@ client.interceptors.response.use(
 );
 
 // ── Auth ───────────────────────────────────────────────────────────────────
+type TokenResponse = { access_token: string; token_type: string; user: User };
+
 export const authApi = {
-  login: (username: string) =>
-    client.post<{ access_token: string; token_type: string; user: User }>(
-      "/auth/login",
-      { username }
-    ),
+  login:      (username: string) =>
+                client.post<TokenResponse>("/auth/login", { username }),
+  azureLogin: (accessToken: string) =>
+                client.post<TokenResponse>("/auth/azure-login", { access_token: accessToken }),
+  oktaLogin:  (accessToken: string) =>
+                client.post<TokenResponse>("/auth/okta-login", { access_token: accessToken }),
+  config:     () =>
+                client.get<{
+                  mode: "demo" | "idp";
+                  entra_enabled: boolean;
+                  okta_enabled: boolean;
+                  azure_client_id?: string;
+                  azure_tenant_id?: string;
+                  okta_domain?: string;
+                  okta_client_id?: string;
+                }>("/auth/config"),
+};
+
+export const userMgmtApi = {
+  list:         (status?: string) =>
+                  client.get<User[]>("/users", { params: status ? { status } : {} }),
+  create:       (data: { display_name: string; email: string; role: string; department?: string; job_title?: string }) =>
+                  client.post<User>("/users", data),
+  updateRole:   (id: number, role: string) =>
+                  client.patch<User>(`/users/${id}/role`, { role }),
+  updateStatus: (id: number, status: "active" | "inactive") =>
+                  client.patch<User>(`/users/${id}/status`, { status }),
+  delete:       (id: number) =>
+                  client.delete(`/users/${id}`),
 };
 
 // ── Users ──────────────────────────────────────────────────────────────────
@@ -164,4 +190,86 @@ export const exceptionsApi = {
                 client.post(`/exceptions/${id}/reject`, null, { params: { approver_id: approverId, approver_notes: notes } }),
   delete:     (id: number) =>
                 client.delete(`/exceptions/${id}`),
+};
+
+// ── Approval Workflow Engine ──────────────────────────────────────────────────
+import type {
+  ApprovalPolicy, ApprovalWorkflow,
+  RiskReviewCycle, RiskReviewCycleDetail, RiskReviewRequest, RiskReviewUpdate,
+} from "@/types";
+
+export const approvalsApi = {
+  // Policies
+  listPolicies:   (entity_type?: string) =>
+                    client.get<ApprovalPolicy[]>("/approvals/policies", { params: entity_type ? { entity_type } : {} }),
+  getPolicy:      (id: number) =>
+                    client.get<ApprovalPolicy>(`/approvals/policies/${id}`),
+  createPolicy:   (data: unknown) =>
+                    client.post<ApprovalPolicy>("/approvals/policies", data),
+  updatePolicy:   (id: number, data: unknown) =>
+                    client.put<ApprovalPolicy>(`/approvals/policies/${id}`, data),
+  deletePolicy:   (id: number) =>
+                    client.delete(`/approvals/policies/${id}`),
+
+  // Workflows
+  createWorkflow: (data: { policy_id: number; entity_type: string; entity_id: number }) =>
+                    client.post<ApprovalWorkflow>("/approvals/workflows", data),
+  myQueue:        () =>
+                    client.get<ApprovalWorkflow[]>("/approvals/workflows/queue"),
+  getForEntity:   (entity_type: string, entity_id: number) =>
+                    client.get<ApprovalWorkflow | null>(`/approvals/workflows/entity/${entity_type}/${entity_id}`),
+  decide:         (workflow_id: number, decision: "approved" | "rejected", notes?: string) =>
+                    client.post<ApprovalWorkflow>(`/approvals/workflows/${workflow_id}/decide`, { decision, notes }),
+};
+
+// ── Risk Reviews ──────────────────────────────────────────────────────────────
+export const riskReviewsApi = {
+  listCycles:     () =>
+    client.get<RiskReviewCycle[]>("/risk-reviews/cycles"),
+
+  createCycle:    (data: { label: string; cycle_type: string; year?: number; scope_note?: string; min_score?: number }) =>
+    client.post<RiskReviewCycle>("/risk-reviews/cycles", data),
+
+  getCycle:       (id: number) =>
+    client.get<RiskReviewCycleDetail>(`/risk-reviews/cycles/${id}`),
+
+  closeCycle:     (id: number) =>
+    client.patch<RiskReviewCycle>(`/risk-reviews/cycles/${id}/close`, {}),
+
+  launchCycle:    (id: number) =>
+    client.post<{ emails_sent: number; requests_created: number; skipped_no_owner: number }>(
+      `/risk-reviews/cycles/${id}/launch`
+    ),
+
+  sendReminders:  (id: number, threshold_days = 7) =>
+    client.post<{ reminders_sent: number; pending_owners: number }>(
+      `/risk-reviews/cycles/${id}/remind`, null, { params: { threshold_days } }
+    ),
+
+  myPending:      () =>
+    client.get<RiskReviewRequest[]>("/risk-reviews/requests/my"),
+
+  submitUpdate:   (requestId: number, data: { status_confirmed?: string; mitigation_progress?: string; notes?: string }) =>
+    client.post<RiskReviewUpdate>(`/risk-reviews/requests/${requestId}/update`, data),
+
+  riskHistory:    (riskId: number) =>
+    client.get<RiskReviewUpdate[]>(`/risk-reviews/history/${riskId}`),
+};
+
+// ── Treatment Plans ────────────────────────────────────────────────────────
+export const treatmentPlansApi = {
+  getByRisk:       (riskId: number) =>
+    client.get<TreatmentPlan | null>(`/treatment-plans/risk/${riskId}`),
+  create:          (data: { risk_id: number; strategy: string; description?: string; owner_id?: number; target_date?: string }) =>
+    client.post<TreatmentPlan>("/treatment-plans", data),
+  update:          (planId: number, data: Partial<{ strategy: string; description: string; owner_id: number; target_date: string; status: string }>) =>
+    client.put<TreatmentPlan>(`/treatment-plans/${planId}`, data),
+  deletePlan:      (planId: number) =>
+    client.delete(`/treatment-plans/${planId}`),
+  addMilestone:    (planId: number, data: { title: string; description?: string; assigned_to_id?: number; due_date?: string; sort_order?: number }) =>
+    client.post<TreatmentMilestone>(`/treatment-plans/${planId}/milestones`, data),
+  updateMilestone: (milestoneId: number, data: Partial<{ title: string; description: string; assigned_to_id: number; due_date: string; status: string; sort_order: number }>) =>
+    client.put<TreatmentMilestone>(`/treatment-plans/milestones/${milestoneId}`, data),
+  deleteMilestone: (milestoneId: number) =>
+    client.delete(`/treatment-plans/milestones/${milestoneId}`),
 };

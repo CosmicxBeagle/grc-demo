@@ -37,11 +37,26 @@ class Threat(Base):
 class User(Base):
     __tablename__ = "users"
 
-    id = Column(Integer, primary_key=True, index=True)
-    username = Column(String(50), unique=True, nullable=False, index=True)
+    id           = Column(Integer, primary_key=True, index=True)
+    username     = Column(String(200), unique=True, nullable=False, index=True)
     display_name = Column(String(100), nullable=False)
-    email = Column(String(200), unique=True, nullable=False)
-    role = Column(String(20), nullable=False)  # admin, tester, reviewer
+    email        = Column(String(200), unique=True, nullable=False)
+
+    # Role — managed in the app, never synced from IdP
+    # admin | grc_manager | grc_analyst | tester | reviewer | risk_owner | viewer
+    role = Column(String(30), nullable=False, default="viewer")
+
+    # Identity provider info
+    identity_provider = Column(String(20), default="local")  # local | entra | okta
+    external_id       = Column(String(200), nullable=True, index=True)  # oid (Entra) or sub (Okta)
+
+    # Profile fields synced from IdP
+    department    = Column(String(100), nullable=True)
+    job_title     = Column(String(100), nullable=True)
+
+    # Lifecycle
+    status        = Column(String(20), default="active")   # active | inactive | pending
+    last_login_at = Column(DateTime, nullable=True)
 
 
 class Control(Base):
@@ -169,12 +184,51 @@ class Risk(Base):
     treatment = Column(String(20), default="mitigate")  # mitigate / accept / transfer / avoid
     status = Column(String(20), default="open")         # open / mitigated / accepted / transferred / closed
     owner = Column(String(100))
+    owner_id = Column(Integer, ForeignKey("users.id"), nullable=True)  # linked user (director/risk_owner)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     asset = relationship("Asset", back_populates="risks")
     threat = relationship("Threat", back_populates="risks")
     controls = relationship("RiskControl", back_populates="risk", cascade="all, delete-orphan")
+    owner_user = relationship("User", foreign_keys=[owner_id])
+    treatment_plan = relationship("TreatmentPlan", back_populates="risk", uselist=False)
+
+
+class TreatmentPlan(Base):
+    __tablename__ = "treatment_plans"
+
+    id          = Column(Integer, primary_key=True, index=True)
+    risk_id     = Column(Integer, ForeignKey("risks.id"), nullable=False, unique=True)
+    strategy    = Column(String(20), nullable=False, default="mitigate")  # mitigate | accept | transfer | avoid
+    description = Column(Text, nullable=True)
+    owner_id    = Column(Integer, ForeignKey("users.id"), nullable=True)
+    target_date = Column(Date, nullable=True)
+    status      = Column(String(20), default="in_progress")  # in_progress | completed | on_hold | cancelled
+    created_at  = Column(DateTime, default=datetime.utcnow)
+    updated_at  = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    milestones = relationship("TreatmentMilestone", back_populates="plan",
+                              cascade="all, delete-orphan", order_by="TreatmentMilestone.sort_order")
+    owner = relationship("User", foreign_keys=[owner_id])
+    risk  = relationship("Risk", back_populates="treatment_plan")
+
+
+class TreatmentMilestone(Base):
+    __tablename__ = "treatment_milestones"
+
+    id             = Column(Integer, primary_key=True, index=True)
+    plan_id        = Column(Integer, ForeignKey("treatment_plans.id"), nullable=False)
+    title          = Column(String(200), nullable=False)
+    description    = Column(Text, nullable=True)
+    assigned_to_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    due_date       = Column(Date, nullable=True)
+    status         = Column(String(20), default="open")  # open | in_progress | completed | overdue
+    completed_at   = Column(DateTime, nullable=True)
+    sort_order     = Column(Integer, default=0)
+
+    plan        = relationship("TreatmentPlan", back_populates="milestones")
+    assigned_to = relationship("User", foreign_keys=[assigned_to_id])
 
 
 class RiskControl(Base):
@@ -188,6 +242,107 @@ class RiskControl(Base):
     risk = relationship("Risk", back_populates="controls")
     control = relationship("Control", back_populates="risk_controls")
 
+
+# ── Approval Workflow Engine ──────────────────────────────────────────────────
+
+class ApprovalPolicy(Base):
+    """Named, reusable approval workflow template."""
+    __tablename__ = "approval_policies"
+
+    id          = Column(Integer, primary_key=True, index=True)
+    name        = Column(String(200), nullable=False)
+    description = Column(Text)
+    entity_type = Column(String(50), nullable=False)  # exception | control_test
+    is_default  = Column(Boolean, default=False)       # auto-applied to this entity type
+    created_at  = Column(DateTime, default=datetime.utcnow)
+    updated_at  = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    steps            = relationship("ApprovalPolicyStep",      back_populates="policy",
+                                    cascade="all, delete-orphan", order_by="ApprovalPolicyStep.step_order")
+    escalation_rules = relationship("ApprovalEscalationRule",  back_populates="policy",
+                                    cascade="all, delete-orphan")
+
+
+class ApprovalPolicyStep(Base):
+    """One step in an approval policy template."""
+    __tablename__ = "approval_policy_steps"
+
+    id               = Column(Integer, primary_key=True, index=True)
+    policy_id        = Column(Integer, ForeignKey("approval_policies.id"), nullable=False)
+    step_order       = Column(Integer, nullable=False)
+    label            = Column(String(100), nullable=False)   # e.g. "GRC Manager Review"
+    approver_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)  # specific person
+    approver_role    = Column(String(50), nullable=True)                        # role fallback
+
+    policy   = relationship("ApprovalPolicy", back_populates="steps")
+    approver = relationship("User", foreign_keys=[approver_user_id])
+
+
+class ApprovalEscalationRule(Base):
+    """Adds an extra step when a field on the entity matches a value."""
+    __tablename__ = "approval_escalation_rules"
+
+    id                = Column(Integer, primary_key=True, index=True)
+    policy_id         = Column(Integer, ForeignKey("approval_policies.id"), nullable=False)
+    condition_field   = Column(String(50), nullable=False)  # e.g. "risk_level"
+    condition_value   = Column(String(50), nullable=False)  # e.g. "critical"
+    add_step_label    = Column(String(100), nullable=False)  # e.g. "CISO Review"
+    add_step_user_id  = Column(Integer, ForeignKey("users.id"), nullable=True)
+    add_step_role     = Column(String(50), nullable=True)
+
+    policy        = relationship("ApprovalPolicy", back_populates="escalation_rules")
+    add_step_user = relationship("User", foreign_keys=[add_step_user_id])
+
+
+class ApprovalWorkflow(Base):
+    """
+    Active approval workflow instance attached to a specific record.
+    Steps are snapshotted from the policy at creation time so policy edits
+    don't affect in-flight workflows.
+    """
+    __tablename__ = "approval_workflows"
+
+    id           = Column(Integer, primary_key=True, index=True)
+    policy_id    = Column(Integer, ForeignKey("approval_policies.id"), nullable=True)
+    entity_type  = Column(String(50), nullable=False)   # exception | control_test
+    entity_id    = Column(Integer, nullable=False)
+    status       = Column(String(30), default="pending")  # pending | approved | rejected
+    current_step = Column(Integer, default=1)
+    created_by   = Column(Integer, ForeignKey("users.id"), nullable=True)
+    created_at   = Column(DateTime, default=datetime.utcnow)
+    completed_at = Column(DateTime, nullable=True)
+
+    policy   = relationship("ApprovalPolicy")
+    steps    = relationship("ApprovalWorkflowStep", back_populates="workflow",
+                            cascade="all, delete-orphan", order_by="ApprovalWorkflowStep.step_order")
+    creator  = relationship("User", foreign_keys=[created_by])
+
+
+class ApprovalWorkflowStep(Base):
+    """
+    Concrete step within an active workflow.
+    Snapshotted from the policy; escalation steps are flagged.
+    """
+    __tablename__ = "approval_workflow_steps"
+
+    id               = Column(Integer, primary_key=True, index=True)
+    workflow_id      = Column(Integer, ForeignKey("approval_workflows.id"), nullable=False)
+    step_order       = Column(Integer, nullable=False)
+    label            = Column(String(100), nullable=False)
+    approver_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    approver_role    = Column(String(50), nullable=True)
+    is_escalation    = Column(Boolean, default=False)
+    status           = Column(String(30), default="pending")  # pending | approved | rejected
+    decided_by_id    = Column(Integer, ForeignKey("users.id"), nullable=True)
+    decided_at       = Column(DateTime, nullable=True)
+    notes            = Column(Text, nullable=True)
+
+    workflow  = relationship("ApprovalWorkflow", back_populates="steps")
+    approver  = relationship("User", foreign_keys=[approver_user_id])
+    decider   = relationship("User", foreign_keys=[decided_by_id])
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 
 class ControlException(Base):
     __tablename__ = "control_exceptions"
@@ -218,3 +373,80 @@ class ControlException(Base):
     control   = relationship("Control", back_populates="exceptions")
     requester = relationship("User", foreign_keys=[requested_by])
     approver  = relationship("User", foreign_keys=[approved_by])
+
+
+# ── Risk Review System ────────────────────────────────────────────────────────
+
+class RiskReviewCycle(Base):
+    """
+    A named review cycle (ad hoc, monthly, quarterly, etc.).
+    Once launched, RiskReviewRequests are created for each in-scope risk.
+
+    min_score controls which risks are included:
+      0  = all risks (default)
+      4  = medium and above  (score >= 4)
+      12 = high and critical (score >= 12)
+      20 = critical only     (score >= 20)
+    """
+    __tablename__ = "risk_review_cycles"
+
+    id          = Column(Integer, primary_key=True, index=True)
+    label       = Column(String(200), nullable=False)
+    cycle_type  = Column(String(20), nullable=False)     # label only: jan | jul | quarterly | monthly | ad_hoc
+    year        = Column(Integer, nullable=True)
+    min_score   = Column(Integer, default=0, nullable=False)  # minimum inherent score to include
+    status      = Column(String(20), default="draft")    # draft | active | closed
+    scope_note  = Column(Text, nullable=True)
+    created_by  = Column(Integer, ForeignKey("users.id"), nullable=True)
+    launched_at = Column(DateTime, nullable=True)
+    closed_at   = Column(DateTime, nullable=True)
+    created_at  = Column(DateTime, default=datetime.utcnow)
+
+    creator  = relationship("User", foreign_keys=[created_by])
+    requests = relationship("RiskReviewRequest", back_populates="cycle",
+                            cascade="all, delete-orphan")
+
+
+class RiskReviewRequest(Base):
+    """
+    Per-risk, per-owner review request within a cycle.
+    One row per risk per owner.  Grouped by owner for email delivery.
+    """
+    __tablename__ = "risk_review_requests"
+
+    id               = Column(Integer, primary_key=True, index=True)
+    cycle_id         = Column(Integer, ForeignKey("risk_review_cycles.id"), nullable=False)
+    risk_id          = Column(Integer, ForeignKey("risks.id"), nullable=False)
+    owner_id         = Column(Integer, ForeignKey("users.id"), nullable=False)
+    status           = Column(String(20), default="pending")  # pending | updated | overdue
+    email_sent_at    = Column(DateTime, nullable=True)
+    last_reminded_at = Column(DateTime, nullable=True)
+    reminder_count   = Column(Integer, default=0)
+    created_at       = Column(DateTime, default=datetime.utcnow)
+
+    cycle   = relationship("RiskReviewCycle", back_populates="requests")
+    risk    = relationship("Risk")
+    owner   = relationship("User", foreign_keys=[owner_id])
+    updates = relationship("RiskReviewUpdate", back_populates="request",
+                           cascade="all, delete-orphan")
+
+
+class RiskReviewUpdate(Base):
+    """
+    A director's status update for one risk in one cycle.
+    Multiple updates per request are allowed (audit trail).
+    """
+    __tablename__ = "risk_review_updates"
+
+    id                  = Column(Integer, primary_key=True, index=True)
+    request_id          = Column(Integer, ForeignKey("risk_review_requests.id"), nullable=False)
+    risk_id             = Column(Integer, ForeignKey("risks.id"), nullable=False)
+    cycle_id            = Column(Integer, ForeignKey("risk_review_cycles.id"), nullable=False)
+    submitted_by        = Column(Integer, ForeignKey("users.id"), nullable=False)
+    status_confirmed    = Column(String(50), nullable=True)   # risk status per owner
+    mitigation_progress = Column(Text, nullable=True)
+    notes               = Column(Text, nullable=True)
+    submitted_at        = Column(DateTime, default=datetime.utcnow)
+
+    request   = relationship("RiskReviewRequest", back_populates="updates")
+    submitter = relationship("User", foreign_keys=[submitted_by])

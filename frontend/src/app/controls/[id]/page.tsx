@@ -52,6 +52,7 @@ export default function ControlDetailPage() {
     controlsApi.get(numId).then((r) => {
       setCtrl(r.data);
       setForm({
+        control_id: r.data.control_id,
         title: r.data.title,
         description: r.data.description ?? "",
         owner: r.data.owner ?? "",

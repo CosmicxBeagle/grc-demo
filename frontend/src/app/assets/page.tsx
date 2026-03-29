@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import AppShell from "@/components/AppShell";
 import { assetsApi } from "@/lib/api";
 import { getUser } from "@/lib/auth";
 import type { Asset } from "@/types";
@@ -121,6 +122,7 @@ export default function AssetsPage() {
   };
 
   return (
+    <AppShell>
     <div className="p-6 max-w-6xl mx-auto">
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
@@ -312,5 +314,6 @@ export default function AssetsPage() {
         </div>
       )}
     </div>
+    </AppShell>
   );
 }

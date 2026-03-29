@@ -7,8 +7,20 @@ import FrameworkBadge from "@/components/FrameworkBadge";
 import { controlsApi } from "@/lib/api";
 import { getUser } from "@/lib/auth";
 import type { Control } from "@/types";
-import { PlusIcon, MagnifyingGlassIcon, ArrowDownTrayIcon } from "@heroicons/react/24/outline";
+import { PlusIcon, MagnifyingGlassIcon, ArrowDownTrayIcon, ChevronUpIcon, ChevronDownIcon } from "@heroicons/react/24/outline";
 import { downloadExport } from "@/lib/api";
+
+type SortKey = "control_id" | "title" | "control_type" | "frequency" | "status";
+type SortDir = "asc" | "desc";
+
+function SortIcon({ col, sortKey, sortDir }: { col: SortKey; sortKey: SortKey; sortDir: SortDir }) {
+  if (col !== sortKey) return <ChevronUpIcon className="w-3 h-3 text-gray-300 inline ml-1" />;
+  return sortDir === "asc"
+    ? <ChevronUpIcon className="w-3 h-3 text-brand-600 inline ml-1" />
+    : <ChevronDownIcon className="w-3 h-3 text-brand-600 inline ml-1" />;
+}
+
+const PAGE_SIZES = [25, 50, 100];
 
 export default function ControlsPage() {
   const [controls, setControls]   = useState<Control[]>([]);
@@ -16,6 +28,10 @@ export default function ControlsPage() {
   const [framework, setFramework] = useState("ALL");
   const [soxOnly, setSoxOnly]     = useState(false);
   const [loading, setLoading]     = useState(true);
+  const [sortKey, setSortKey]     = useState<SortKey>("control_id");
+  const [sortDir, setSortDir]     = useState<SortDir>("asc");
+  const [page, setPage]           = useState(1);
+  const [pageSize, setPageSize]   = useState(25);
   const user = getUser();
 
   useEffect(() => {
@@ -29,17 +45,32 @@ export default function ControlsPage() {
     ...Array.from(new Set(controls.flatMap((c) => c.mappings.map((m) => m.framework)))).sort(),
   ];
 
-  const filtered = controls.filter((c) => {
-    const matchesSearch =
-      c.title.toLowerCase().includes(search.toLowerCase()) ||
-      c.control_id.toLowerCase().includes(search.toLowerCase()) ||
-      (c.owner ?? "").toLowerCase().includes(search.toLowerCase());
-    const matchesFramework =
-      framework === "ALL" ||
-      c.mappings.some((m) => m.framework === framework);
-    const matchesSox = !soxOnly || c.sox_in_scope;
-    return matchesSearch && matchesFramework && matchesSox;
-  });
+  const handleSort = (key: SortKey) => {
+    if (key === sortKey) setSortDir(d => d === "asc" ? "desc" : "asc");
+    else { setSortKey(key); setSortDir("asc"); }
+    setPage(1);
+  };
+
+  const filtered = controls
+    .filter((c) => {
+      const matchesSearch =
+        c.title.toLowerCase().includes(search.toLowerCase()) ||
+        c.control_id.toLowerCase().includes(search.toLowerCase()) ||
+        (c.owner ?? "").toLowerCase().includes(search.toLowerCase());
+      const matchesFramework =
+        framework === "ALL" ||
+        c.mappings.some((m) => m.framework === framework);
+      const matchesSox = !soxOnly || c.sox_in_scope;
+      return matchesSearch && matchesFramework && matchesSox;
+    })
+    .sort((a, b) => {
+      const av = (a[sortKey] ?? "").toString().toLowerCase();
+      const bv = (b[sortKey] ?? "").toString().toLowerCase();
+      return sortDir === "asc" ? av.localeCompare(bv) : bv.localeCompare(av);
+    });
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const paginated  = filtered.slice((page - 1) * pageSize, page * pageSize);
 
   return (
     <AppShell>
@@ -113,27 +144,33 @@ export default function ControlsPage() {
         {loading ? (
           <div className="text-center py-20 text-gray-400">Loading…</div>
         ) : (
+          <>
           <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
             <table className="w-full text-sm">
               <thead className="bg-gray-50 border-b border-gray-200">
                 <tr>
-                  <th className="text-left px-4 py-3 font-medium text-gray-600">ID</th>
-                  <th className="text-left px-4 py-3 font-medium text-gray-600">Title</th>
-                  <th className="text-left px-4 py-3 font-medium text-gray-600">Type</th>
-                  <th className="text-left px-4 py-3 font-medium text-gray-600">Frequency</th>
+                  {([ ["control_id","ID"], ["title","Title"], ["control_type","Type"], ["frequency","Frequency"] ] as [SortKey,string][]).map(([key, label]) => (
+                    <th key={key} className="text-left px-4 py-3 font-medium text-gray-600 cursor-pointer select-none hover:text-gray-900 whitespace-nowrap"
+                        onClick={() => handleSort(key)}>
+                      {label}<SortIcon col={key} sortKey={sortKey} sortDir={sortDir} />
+                    </th>
+                  ))}
                   <th className="text-left px-4 py-3 font-medium text-gray-600">Frameworks</th>
-                  <th className="text-left px-4 py-3 font-medium text-gray-600">Status</th>
+                  <th className="text-left px-4 py-3 font-medium text-gray-600 cursor-pointer select-none hover:text-gray-900 whitespace-nowrap"
+                      onClick={() => handleSort("status")}>
+                    Status<SortIcon col="status" sortKey={sortKey} sortDir={sortDir} />
+                  </th>
                 </tr>
               </thead>
               <tbody>
-                {filtered.length === 0 ? (
+                {paginated.length === 0 ? (
                   <tr>
                     <td colSpan={6} className="text-center py-12 text-gray-400">
                       No controls match your filters.
                     </td>
                   </tr>
                 ) : (
-                  filtered.map((ctrl) => (
+                  paginated.map((ctrl) => (
                     <tr key={ctrl.id} className="border-b border-gray-100 hover:bg-gray-50">
                       <td className="px-4 py-3">
                         <Link href={`/controls/${ctrl.id}`} className="font-mono text-brand-600 hover:underline">
@@ -173,6 +210,34 @@ export default function ControlsPage() {
               </tbody>
             </table>
           </div>
+
+          {/* Pagination */}
+          <div className="flex items-center justify-between text-sm text-gray-500">
+            <div className="flex items-center gap-2">
+              <span>Rows per page:</span>
+              {PAGE_SIZES.map(s => (
+                <button key={s} onClick={() => { setPageSize(s); setPage(1); }}
+                  className={`px-2 py-1 rounded text-xs font-medium transition-colors ${pageSize === s ? "bg-brand-600 text-white" : "bg-gray-100 hover:bg-gray-200 text-gray-700"}`}>
+                  {s}
+                </button>
+              ))}
+            </div>
+            <div className="flex items-center gap-3">
+              <span>{((page-1)*pageSize)+1}–{Math.min(page*pageSize, filtered.length)} of {filtered.length}</span>
+              <div className="flex gap-1">
+                <button onClick={() => setPage(1)} disabled={page === 1}
+                  className="px-2 py-1 rounded text-xs border border-gray-200 disabled:opacity-40 hover:bg-gray-50">«</button>
+                <button onClick={() => setPage(p => p - 1)} disabled={page === 1}
+                  className="px-2 py-1 rounded text-xs border border-gray-200 disabled:opacity-40 hover:bg-gray-50">‹</button>
+                <span className="px-2 py-1 text-xs">Page {page} of {totalPages}</span>
+                <button onClick={() => setPage(p => p + 1)} disabled={page === totalPages}
+                  className="px-2 py-1 rounded text-xs border border-gray-200 disabled:opacity-40 hover:bg-gray-50">›</button>
+                <button onClick={() => setPage(totalPages)} disabled={page === totalPages}
+                  className="px-2 py-1 rounded text-xs border border-gray-200 disabled:opacity-40 hover:bg-gray-50">»</button>
+              </div>
+            </div>
+          </div>
+          </>
         )}
       </div>
     </AppShell>

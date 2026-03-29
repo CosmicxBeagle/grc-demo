@@ -15,22 +15,27 @@ import {
   ScaleIcon,
   DocumentCheckIcon,
   ArchiveBoxXMarkIcon,
+  ShieldExclamationIcon,
+  Cog6ToothIcon,
+  CalendarDaysIcon,
 } from "@heroicons/react/24/outline";
 
 const nav = [
-  { href: "/dashboard",    label: "Dashboard",      icon: HomeIcon },
-  { href: "/controls",     label: "Control Library", icon: ShieldCheckIcon },
-  { href: "/sox",          label: "SOX Scoping",     icon: DocumentCheckIcon },
-  { href: "/test-cycles",  label: "Test Cycles",     icon: ClipboardDocumentListIcon },
-  { href: "/evidence",     label: "Evidence",        icon: PaperClipIcon },
-  { href: "/deficiencies", label: "Deficiencies",    icon: ExclamationTriangleIcon },
+  { href: "/dashboard",    label: "Dashboard",        icon: HomeIcon },
+  { href: "/controls",     label: "Control Library",  icon: ShieldCheckIcon },
+  { href: "/sox",          label: "SOX Scoping",      icon: DocumentCheckIcon },
+  { href: "/test-cycles",  label: "Test Cycles",      icon: ClipboardDocumentListIcon },
+  { href: "/evidence",     label: "Evidence",         icon: PaperClipIcon },
+  { href: "/deficiencies", label: "Deficiencies",     icon: ExclamationTriangleIcon },
   { href: "/exceptions",   label: "Exceptions",       icon: ArchiveBoxXMarkIcon },
+  { href: "/approvals",    label: "My Approvals",     icon: ShieldExclamationIcon },
 ];
 
 const riskNav = [
-  { href: "/assets",  label: "Assets",  icon: ServerStackIcon },
-  { href: "/threats", label: "Threats", icon: BoltIcon },
-  { href: "/risks",   label: "Risks",   icon: ScaleIcon },
+  { href: "/assets",       label: "Assets",        icon: ServerStackIcon  },
+  { href: "/threats",      label: "Threats",        icon: BoltIcon         },
+  { href: "/risks",        label: "Risks",          icon: ScaleIcon        },
+  { href: "/risk-reviews", label: "Risk Reviews",   icon: CalendarDaysIcon },
 ];
 
 export default function Sidebar() {
@@ -68,6 +73,35 @@ export default function Sidebar() {
             {label}
           </Link>
         ))}
+
+        {/* Admin Settings section */}
+        {user?.role === "admin" && (
+          <>
+            <div className="pt-4 pb-1">
+              <p className="px-3 text-xs font-semibold text-blue-400 uppercase tracking-wider">
+                Settings
+              </p>
+            </div>
+            {[
+              { href: "/settings/users",     label: "Users",             icon: ShieldCheckIcon  },
+              { href: "/settings/approvals", label: "Approval Policies", icon: Cog6ToothIcon    },
+            ].map(({ href, label, icon: Icon }) => (
+              <Link
+                key={href}
+                href={href}
+                className={clsx(
+                  "flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors",
+                  pathname.startsWith(href)
+                    ? "bg-brand-600 text-white"
+                    : "text-blue-100 hover:bg-brand-700"
+                )}
+              >
+                <Icon className="w-5 h-5 shrink-0" />
+                {label}
+              </Link>
+            ))}
+          </>
+        )}
 
         {/* Risk Management section */}
         <div className="pt-4 pb-1">

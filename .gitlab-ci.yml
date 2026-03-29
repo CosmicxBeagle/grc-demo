@@ -1,0 +1,177 @@
+# ─────────────────────────────────────────────────────────────────────────────
+#  GRC Demo — GitLab CI/CD Pipeline
+#
+#  Required GitLab CI/CD Variables (Settings → CI/CD → Variables):
+#    AZURE_CLIENT_ID        — Service principal app ID
+#    AZURE_CLIENT_SECRET    — Service principal secret  (masked)
+#    AZURE_TENANT_ID        — Entra ID tenant ID
+#    AZURE_RESOURCE_GROUP   — Azure resource group name
+#    POSTGRES_PASSWORD      — DB password for staging/prod  (masked)
+# ─────────────────────────────────────────────────────────────────────────────
+
+stages:
+  - lint
+  - test
+  - build
+  - scan
+  - deploy
+
+variables:
+  DOCKER_TLS_CERTDIR: "/certs"
+  BACKEND_IMAGE:  "$CI_REGISTRY_IMAGE/grc-backend"
+  FRONTEND_IMAGE: "$CI_REGISTRY_IMAGE/grc-frontend"
+
+# ── Lint ──────────────────────────────────────────────────────────────────────
+
+backend:lint:
+  stage: lint
+  image: python:3.11-slim
+  script:
+    - pip install ruff --quiet
+    - ruff check backend/app/
+
+frontend:lint:
+  stage: lint
+  image: node:20-alpine
+  cache:
+    key: "frontend-$CI_COMMIT_REF_SLUG"
+    paths: [frontend/node_modules/]
+  script:
+    - cd frontend
+    - npm ci --silent
+    - npm run lint
+
+# ── Test ──────────────────────────────────────────────────────────────────────
+
+backend:test:
+  stage: test
+  image: python:3.11-slim
+  services:
+    - name: postgres:16-alpine
+      alias: postgres
+  variables:
+    POSTGRES_DB: grc_test
+    POSTGRES_USER: grc
+    POSTGRES_PASSWORD: ci_test_pw
+    DATABASE_URL: "postgresql://grc:ci_test_pw@postgres/grc_test"
+  script:
+    - apt-get update -qq && apt-get install -y -qq libpq-dev gcc
+    - cd backend
+    - pip install -r requirements.txt pytest pytest-cov httpx --quiet
+    - alembic upgrade head
+    - pytest tests/ -v --cov=app --cov-report=xml --cov-report=term-missing
+  coverage: '/TOTAL.*\s+(\d+%)$/'
+  artifacts:
+    reports:
+      coverage_report:
+        coverage_format: cobertura
+        path: backend/coverage.xml
+    expire_in: 1 week
+
+# ── Build & Push Container Images ─────────────────────────────────────────────
+
+.docker_base:
+  stage: build
+  image: docker:24
+  services:
+    - docker:24-dind
+  before_script:
+    - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "develop"'
+
+backend:build:
+  extends: .docker_base
+  script:
+    - |
+      docker build \
+        --cache-from "$BACKEND_IMAGE:latest" \
+        -t "$BACKEND_IMAGE:$CI_COMMIT_SHORT_SHA" \
+        -t "$BACKEND_IMAGE:latest" \
+        ./backend
+    - docker push "$BACKEND_IMAGE:$CI_COMMIT_SHORT_SHA"
+    - docker push "$BACKEND_IMAGE:latest"
+
+frontend:build:
+  extends: .docker_base
+  script:
+    - |
+      docker build \
+        --cache-from "$FRONTEND_IMAGE:latest" \
+        -t "$FRONTEND_IMAGE:$CI_COMMIT_SHORT_SHA" \
+        -t "$FRONTEND_IMAGE:latest" \
+        ./frontend
+    - docker push "$FRONTEND_IMAGE:$CI_COMMIT_SHORT_SHA"
+    - docker push "$FRONTEND_IMAGE:latest"
+
+# ── Security Scanning ─────────────────────────────────────────────────────────
+
+# GitLab built-in SAST — scans Python & TypeScript source code
+include:
+  - template: Security/SAST.gitlab-ci.yml
+  - template: Security/Secret-Detection.gitlab-ci.yml
+  - template: Security/Dependency-Scanning.gitlab-ci.yml
+  - template: Security/Container-Scanning.gitlab-ci.yml
+
+# Point container scan at our backend image
+container_scanning:
+  variables:
+    CS_IMAGE: "$BACKEND_IMAGE:latest"
+  needs: ["backend:build"]
+
+# ── Deploy ────────────────────────────────────────────────────────────────────
+
+.deploy_base:
+  stage: deploy
+  image: mcr.microsoft.com/azure-cli:latest
+  before_script:
+    - az login --service-principal
+        -u "$AZURE_CLIENT_ID"
+        -p "$AZURE_CLIENT_SECRET"
+        --tenant "$AZURE_TENANT_ID"
+        --output none
+
+deploy:dev:
+  extends: .deploy_base
+  environment:
+    name: development
+    url: https://grc-frontend-dev.azurecontainerapps.io
+  script:
+    - |
+      az containerapp update \
+        --name grc-backend-dev \
+        --resource-group "$AZURE_RESOURCE_GROUP" \
+        --image "$BACKEND_IMAGE:$CI_COMMIT_SHORT_SHA" \
+        --output none
+      az containerapp update \
+        --name grc-frontend-dev \
+        --resource-group "$AZURE_RESOURCE_GROUP" \
+        --image "$FRONTEND_IMAGE:$CI_COMMIT_SHORT_SHA" \
+        --output none
+      echo "Deployed $CI_COMMIT_SHORT_SHA to dev"
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      when: manual        # gate — someone must click Deploy in GitLab UI
+
+deploy:prod:
+  extends: .deploy_base
+  environment:
+    name: production
+    url: https://grc.yourcompany.com
+  script:
+    - |
+      az containerapp update \
+        --name grc-backend-prod \
+        --resource-group "$AZURE_RESOURCE_GROUP" \
+        --image "$BACKEND_IMAGE:$CI_COMMIT_SHORT_SHA" \
+        --output none
+      az containerapp update \
+        --name grc-frontend-prod \
+        --resource-group "$AZURE_RESOURCE_GROUP" \
+        --image "$FRONTEND_IMAGE:$CI_COMMIT_SHORT_SHA" \
+        --output none
+      echo "Deployed $CI_COMMIT_SHORT_SHA to production"
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      when: manual        # separate gate for production
+      allow_failure: false

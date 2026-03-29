@@ -16,12 +16,14 @@ from app.schemas.schemas import (
     LoginRequest,
 )
 from app.auth.local_auth import encode_token
+from app.models.models import User
 
 
 # ── Auth Service ───────────────────────────────────────────────────────────
 
 class AuthService:
     def __init__(self, db: Session):
+        self.db = db
         self.repo = UserRepository(db)
 
     def login(self, req: LoginRequest):
@@ -31,21 +33,85 @@ class AuthService:
         token = encode_token(user.id, user.username, user.role)
         return {"access_token": token, "token_type": "bearer", "user": user}
 
+    def idp_login(self, access_token: str) -> dict:
+        """
+        Unified IdP login for both Entra ID and Okta.
+        Validates the token, upserts the user, and returns the IdP token
+        as the session token (the backend re-validates it on every request).
+        """
+        from app.auth.identity import validate_token, upsert_user
+        info = validate_token(access_token)
+        user = upsert_user(self.db, info)
+        return {
+            "access_token": access_token,
+            "token_type":   "bearer",
+            "user":         user,
+        }
+
+    # Keep old name for any remaining references
+    def azure_login(self, access_token: str) -> dict:
+        return self.idp_login(access_token)
+
 
 # ── User Service ───────────────────────────────────────────────────────────
 
 class UserService:
     def __init__(self, db: Session):
+        self.db   = db
         self.repo = UserRepository(db)
 
-    def list_users(self):
-        return self.repo.get_all()
+    def list_users(self, status: str = None):
+        from app.models.models import User as UserModel
+        q = self.db.query(UserModel)
+        if status:
+            q = q.filter(UserModel.status == status)
+        return q.order_by(UserModel.display_name).all()
 
     def get_user(self, user_id: int):
         user = self.repo.get_by_id(user_id)
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
         return user
+
+    def create_user(self, data):
+        from app.models.models import User as UserModel
+        if self.db.query(UserModel).filter(UserModel.email == data.email).first():
+            raise HTTPException(400, "A user with that email already exists.")
+        user = UserModel(
+            username          = data.email,
+            display_name      = data.display_name,
+            email             = data.email,
+            role              = data.role,
+            status            = "pending",
+            identity_provider = "local",
+            department        = data.department,
+            job_title         = data.job_title,
+        )
+        self.db.add(user)
+        self.db.commit()
+        self.db.refresh(user)
+        return user
+
+    def update_role(self, user_id: int, role: str):
+        user = self.get_user(user_id)
+        user.role = role
+        self.db.commit()
+        self.db.refresh(user)
+        return user
+
+    def update_status(self, user_id: int, status: str):
+        if status not in ("active", "inactive"):
+            raise HTTPException(400, "status must be 'active' or 'inactive'")
+        user = self.get_user(user_id)
+        user.status = status
+        self.db.commit()
+        self.db.refresh(user)
+        return user
+
+    def delete_user(self, user_id: int):
+        user = self.get_user(user_id)
+        self.db.delete(user)
+        self.db.commit()
 
 
 # ── Control Service ────────────────────────────────────────────────────────

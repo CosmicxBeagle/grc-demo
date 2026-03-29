@@ -9,14 +9,32 @@ class UserBase(BaseModel):
     username: str
     display_name: str
     email: str
-    role: str  # admin | tester | reviewer
+    role: str  # admin | grc_manager | grc_analyst | tester | reviewer | risk_owner | viewer
 
 class UserCreate(UserBase):
     pass
 
 class UserOut(UserBase):
     id: int
+    identity_provider: Optional[str] = "local"
+    department:        Optional[str] = None
+    job_title:         Optional[str] = None
+    status:            Optional[str] = "active"
+    last_login_at:     Optional[datetime] = None
     model_config = {"from_attributes": True}
+
+class UserRoleUpdate(BaseModel):
+    role: str
+
+class UserStatusUpdate(BaseModel):
+    status: str   # active | inactive
+
+class UserCreateManual(BaseModel):
+    display_name: str
+    email:        str
+    role:         str = "viewer"
+    department:   Optional[str] = None
+    job_title:    Optional[str] = None
 
 
 # ── Controls ───────────────────────────────────────────────────────────────
@@ -383,6 +401,7 @@ class RiskCreate(BaseModel):
     treatment: Optional[str] = "mitigate"
     status: Optional[str] = "open"
     owner: Optional[str] = None
+    owner_id: Optional[int] = None   # FK to users — used for review email routing
 
 class RiskUpdate(BaseModel):
     name: Optional[str] = None
@@ -394,6 +413,7 @@ class RiskUpdate(BaseModel):
     treatment: Optional[str] = None
     status: Optional[str] = None
     owner: Optional[str] = None
+    owner_id: Optional[int] = None
 
 class RiskOut(BaseModel):
     id: int
@@ -407,6 +427,7 @@ class RiskOut(BaseModel):
     treatment: Optional[str] = None
     status: str
     owner: Optional[str] = None
+    owner_id: Optional[int] = None
     created_at: datetime
     updated_at: datetime
     asset: Optional[AssetOut] = None
@@ -424,6 +445,219 @@ class RiskControlCreate(BaseModel):
     notes: Optional[str] = None
 
 
+# ── Approval Workflow Engine ────────────────────────────────────────────────
+
+class ApprovalEscalationRuleBase(BaseModel):
+    condition_field:  str
+    condition_value:  str
+    add_step_label:   str
+    add_step_user_id: Optional[int] = None
+    add_step_role:    Optional[str] = None
+
+class ApprovalEscalationRuleOut(ApprovalEscalationRuleBase):
+    id: int
+    add_step_user: Optional[UserOut] = None
+    model_config = {"from_attributes": True}
+
+class ApprovalPolicyStepBase(BaseModel):
+    step_order:       int
+    label:            str
+    approver_user_id: Optional[int] = None
+    approver_role:    Optional[str] = None
+
+class ApprovalPolicyStepOut(ApprovalPolicyStepBase):
+    id: int
+    approver: Optional[UserOut] = None
+    model_config = {"from_attributes": True}
+
+class ApprovalPolicyCreate(BaseModel):
+    name:        str
+    description: Optional[str] = None
+    entity_type: str                    # exception | control_test
+    is_default:  bool = False
+    steps:            list[ApprovalPolicyStepBase] = []
+    escalation_rules: list[ApprovalEscalationRuleBase] = []
+
+class ApprovalPolicyUpdate(BaseModel):
+    name:        Optional[str] = None
+    description: Optional[str] = None
+    is_default:  Optional[bool] = None
+    steps:            Optional[list[ApprovalPolicyStepBase]] = None
+    escalation_rules: Optional[list[ApprovalEscalationRuleBase]] = None
+
+class ApprovalPolicyOut(BaseModel):
+    id:          int
+    name:        str
+    description: Optional[str] = None
+    entity_type: str
+    is_default:  bool
+    created_at:  datetime
+    steps:            list[ApprovalPolicyStepOut] = []
+    escalation_rules: list[ApprovalEscalationRuleOut] = []
+    model_config = {"from_attributes": True}
+
+
+class ApprovalWorkflowStepOut(BaseModel):
+    id:               int
+    step_order:       int
+    label:            str
+    approver_user_id: Optional[int] = None
+    approver_role:    Optional[str] = None
+    is_escalation:    bool
+    status:           str   # pending | approved | rejected
+    decided_by_id:    Optional[int] = None
+    decided_at:       Optional[datetime] = None
+    notes:            Optional[str] = None
+    approver:         Optional[UserOut] = None
+    decider:          Optional[UserOut] = None
+    model_config = {"from_attributes": True}
+
+class ApprovalWorkflowOut(BaseModel):
+    id:           int
+    entity_type:  str
+    entity_id:    int
+    status:       str        # pending | approved | rejected
+    current_step: int
+    created_at:   datetime
+    completed_at: Optional[datetime] = None
+    creator:      Optional[UserOut] = None
+    steps:        list[ApprovalWorkflowStepOut] = []
+    model_config = {"from_attributes": True}
+
+class ApprovalDecisionRequest(BaseModel):
+    decision: str            # approved | rejected
+    notes:    Optional[str] = None
+
+class ApprovalWorkflowCreate(BaseModel):
+    policy_id:   int
+    entity_type: str
+    entity_id:   int
+
+
+# ── Risk Review System ────────────────────────────────────────────────────────
+
+class RiskReviewCycleCreate(BaseModel):
+    label:      str
+    cycle_type: str               # label only: jan | jul | quarterly | monthly | ad_hoc
+    year:       Optional[int] = None
+    scope_note: Optional[str] = None
+    min_score:  int = 0           # 0=all, 4=medium+, 12=high+, 20=critical only
+
+class RiskReviewCycleOut(BaseModel):
+    id:           int
+    label:        str
+    cycle_type:   str
+    year:         Optional[int]     = None
+    min_score:    int               = 0
+    status:       str               # draft | active | closed
+    scope_note:   Optional[str]     = None
+    created_by:   Optional[int]     = None
+    launched_at:  Optional[datetime] = None
+    closed_at:    Optional[datetime] = None
+    created_at:   datetime
+    # Computed counts (populated by the router)
+    request_count: int = 0
+    pending_count:  int = 0
+    updated_count:  int = 0
+    model_config = {"from_attributes": True}
+
+class RiskReviewUpdateCreate(BaseModel):
+    status_confirmed:    Optional[str] = None
+    mitigation_progress: Optional[str] = None
+    notes:               Optional[str] = None
+
+class RiskReviewUpdateOut(BaseModel):
+    id:                  int
+    request_id:          int
+    risk_id:             int
+    cycle_id:            int
+    submitted_by:        int
+    status_confirmed:    Optional[str] = None
+    mitigation_progress: Optional[str] = None
+    notes:               Optional[str] = None
+    submitted_at:        datetime
+    submitter:           Optional[UserOut] = None
+    model_config = {"from_attributes": True}
+
+class RiskReviewRequestOut(BaseModel):
+    id:               int
+    cycle_id:         int
+    risk_id:          int
+    owner_id:         int
+    status:           str   # pending | updated | overdue
+    email_sent_at:    Optional[datetime] = None
+    last_reminded_at: Optional[datetime] = None
+    reminder_count:   int = 0
+    created_at:       datetime
+    owner:            Optional[UserOut] = None
+    updates:          list[RiskReviewUpdateOut] = []
+    model_config = {"from_attributes": True}
+
+class RiskReviewCycleDetail(RiskReviewCycleOut):
+    """Cycle with full request list (used on the detail page)."""
+    requests: list[RiskReviewRequestOut] = []
+
+
+# ── Treatment Plans ────────────────────────────────────────────────────────
+
+class TreatmentMilestoneCreate(BaseModel):
+    title:          str
+    description:    Optional[str] = None
+    assigned_to_id: Optional[int] = None
+    due_date:       Optional[date] = None
+    status:         str = "open"
+    sort_order:     int = 0
+
+class TreatmentMilestoneUpdate(BaseModel):
+    title:          Optional[str] = None
+    description:    Optional[str] = None
+    assigned_to_id: Optional[int] = None
+    due_date:       Optional[date] = None
+    status:         Optional[str] = None
+    sort_order:     Optional[int] = None
+
+class TreatmentMilestoneOut(BaseModel):
+    id:             int
+    plan_id:        int
+    title:          str
+    description:    Optional[str]
+    assigned_to_id: Optional[int]
+    assigned_to:    Optional[UserOut] = None
+    due_date:       Optional[date]
+    status:         str
+    completed_at:   Optional[datetime] = None
+    sort_order:     int
+    model_config = {"from_attributes": True}
+
+class TreatmentPlanCreate(BaseModel):
+    risk_id:     int
+    strategy:    str = "mitigate"
+    description: Optional[str] = None
+    owner_id:    Optional[int] = None
+    target_date: Optional[date] = None
+
+class TreatmentPlanUpdate(BaseModel):
+    strategy:    Optional[str] = None
+    description: Optional[str] = None
+    owner_id:    Optional[int] = None
+    target_date: Optional[date] = None
+    status:      Optional[str] = None
+
+class TreatmentPlanOut(BaseModel):
+    id:          int
+    risk_id:     int
+    strategy:    str
+    description: Optional[str]
+    owner_id:    Optional[int]
+    owner:       Optional[UserOut] = None
+    target_date: Optional[date]
+    status:      str
+    created_at:  datetime
+    updated_at:  datetime
+    milestones:  list[TreatmentMilestoneOut] = []
+    model_config = {"from_attributes": True}
+
+
 # ── Auth ───────────────────────────────────────────────────────────────────
 
 class LoginRequest(BaseModel):
@@ -433,3 +667,6 @@ class TokenResponse(BaseModel):
     access_token: str
     token_type: str
     user: UserOut
+
+class AzureLoginRequest(BaseModel):
+    access_token: str

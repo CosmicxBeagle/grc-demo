@@ -44,6 +44,18 @@ C/
 
 # Uploaded evidence files
 backend/uploads/
+backend/data/evidence/*
+!backend/data/evidence/.gitkeep
 
 # Data CSVs (large source files)
 backend/data/*.csv
+
+# Secrets — never commit
+backend/.env
+!backend/.env.example
+
+# Coverage reports
+.coverage
+coverage.xml
+htmlcov/
+.pytest_cache/

@@ -2,9 +2,10 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import AppShell from "@/components/AppShell";
-import { exceptionsApi } from "@/lib/api";
+import { exceptionsApi, approvalsApi } from "@/lib/api";
 import { getUser } from "@/lib/auth";
-import type { ControlException, ExceptionStatus, ExceptionType } from "@/types";
+import type { ControlException, ExceptionStatus, ExceptionType, ApprovalWorkflow, ApprovalPolicy } from "@/types";
+import ApprovalTimeline from "@/components/ApprovalTimeline";
 import {
   PlusIcon,
   XMarkIcon,
@@ -220,6 +221,95 @@ function ExceptionModal({
   );
 }
 
+// ── Workflow panel (loaded lazily when row is expanded) ───────────────────────
+
+function ExceptionWorkflowPanel({
+  exceptionId,
+  userId,
+  userRole,
+  onRefresh,
+}: {
+  exceptionId: number;
+  userId?: number;
+  userRole?: string;
+  onRefresh: () => void;
+}) {
+  const [workflow, setWorkflow] = useState<ApprovalWorkflow | null | undefined>(undefined);
+  const [policies, setPolicies] = useState<ApprovalPolicy[]>([]);
+  const [starting, setStarting] = useState(false);
+  const [selPolicy, setSelPolicy] = useState<number | "">("");
+
+  useEffect(() => {
+    Promise.all([
+      approvalsApi.getForEntity("exception", exceptionId),
+      approvalsApi.listPolicies("exception"),
+    ]).then(([wfRes, polRes]) => {
+      setWorkflow(wfRes.data ?? null);
+      setPolicies(polRes.data);
+      if (polRes.data.length > 0) setSelPolicy(polRes.data[0].id);
+    }).catch(() => setWorkflow(null));
+  }, [exceptionId]);
+
+  const startWorkflow = async () => {
+    if (!selPolicy) return;
+    setStarting(true);
+    try {
+      const res = await approvalsApi.createWorkflow({
+        policy_id: selPolicy as number,
+        entity_type: "exception",
+        entity_id: exceptionId,
+      });
+      setWorkflow(res.data);
+      onRefresh();
+    } finally {
+      setStarting(false);
+    }
+  };
+
+  if (workflow === undefined) return <p className="text-xs text-gray-400">Loading workflow…</p>;
+
+  return (
+    <div className="border-t border-gray-100 pt-4 mt-4">
+      {workflow ? (
+        <ApprovalTimeline
+          workflow={workflow}
+          currentUserId={userId}
+          currentUserRole={userRole}
+          onDecision={() => {
+            approvalsApi.getForEntity("exception", exceptionId).then(r => setWorkflow(r.data ?? null));
+            onRefresh();
+          }}
+        />
+      ) : policies.length > 0 ? (
+        <div className="space-y-2">
+          <p className="text-sm font-medium text-gray-700">Start Approval Workflow</p>
+          <div className="flex items-center gap-2">
+            <select
+              value={selPolicy}
+              onChange={e => setSelPolicy(e.target.value ? +e.target.value : "")}
+              className="flex-1 border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400"
+            >
+              {policies.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+            <button
+              onClick={startWorkflow}
+              disabled={starting || !selPolicy}
+              className="bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium rounded-lg px-4 py-1.5 disabled:opacity-50"
+            >
+              {starting ? "Starting…" : "Start"}
+            </button>
+          </div>
+        </div>
+      ) : (
+        <p className="text-xs text-gray-400 italic">
+          No approval policies defined.{" "}
+          <a href="/settings/approvals" className="text-brand-600 hover:underline">Create one in Settings →</a>
+        </p>
+      )}
+    </div>
+  );
+}
+
 // ── main page ────────────────────────────────────────────────────────────────
 
 export default function ExceptionsPage() {
@@ -417,6 +507,14 @@ export default function ExceptionsPage() {
                         <span>Created {new Date(exc.created_at).toLocaleDateString()}</span>
                         {exc.expiry_date && <span>Expires {new Date(exc.expiry_date).toLocaleDateString()}</span>}
                       </div>
+
+                      {/* Approval Workflow */}
+                      <ExceptionWorkflowPanel
+                        exceptionId={exc.id}
+                        userId={user?.id}
+                        userRole={user?.role}
+                        onRefresh={load}
+                      />
 
                       {/* Status change */}
                       <div className="flex items-center gap-2 pt-1">

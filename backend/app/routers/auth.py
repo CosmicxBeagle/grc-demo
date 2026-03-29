@@ -1,7 +1,9 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
+
+from app.config import settings
 from app.db.database import get_db
-from app.schemas.schemas import LoginRequest, TokenResponse
+from app.schemas.schemas import LoginRequest, TokenResponse, AzureLoginRequest
 from app.services.services import AuthService
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -9,5 +11,53 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 @router.post("/login", response_model=TokenResponse)
 def login(req: LoginRequest, db: Session = Depends(get_db)):
-    """Local-only login — just supply a username. No password needed for the demo."""
+    """
+    Demo-mode login — supply a username, get a base64 session token back.
+    Disabled when any IdP (Entra or Okta) is configured.
+    """
+    if settings.azure_enabled or settings.okta_enabled:
+        raise HTTPException(
+            status_code=400,
+            detail="Demo login is disabled — use /auth/azure-login or /auth/okta-login.",
+        )
     return AuthService(db).login(req)
+
+
+@router.post("/azure-login", response_model=TokenResponse)
+def azure_login(req: AzureLoginRequest, db: Session = Depends(get_db)):
+    """
+    Entra ID login — frontend sends the MSAL access token; backend validates
+    it against Microsoft's JWKS, upserts the user, and returns a session token.
+    """
+    if not settings.azure_enabled:
+        raise HTTPException(status_code=400, detail="Entra ID is not configured on this server.")
+    return AuthService(db).idp_login(req.access_token)
+
+
+@router.post("/okta-login", response_model=TokenResponse)
+def okta_login(req: AzureLoginRequest, db: Session = Depends(get_db)):
+    """
+    Okta login — frontend sends the Okta access token; backend validates it
+    against Okta's JWKS, upserts the user, and returns a session token.
+    """
+    if not settings.okta_enabled:
+        raise HTTPException(status_code=400, detail="Okta is not configured on this server.")
+    return AuthService(db).idp_login(req.access_token)
+
+
+@router.get("/config")
+def auth_config():
+    """
+    Returns auth configuration so the frontend knows which login buttons to show.
+    Safe to call without authentication.
+    """
+    return {
+        "mode":             "idp" if (settings.azure_enabled or settings.okta_enabled) else "demo",
+        "entra_enabled":    settings.azure_enabled,
+        "okta_enabled":     settings.okta_enabled,
+        # Client IDs are safe to expose — they're public values needed by the frontend SDK
+        "azure_client_id":  settings.azure_client_id  if settings.azure_enabled  else None,
+        "azure_tenant_id":  settings.azure_tenant_id  if settings.azure_enabled  else None,
+        "okta_domain":      settings.okta_domain       if settings.okta_enabled   else None,
+        "okta_client_id":   settings.okta_client_id    if settings.okta_enabled   else None,
+    }

@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import AppShell from "@/components/AppShell";
 import { threatsApi } from "@/lib/api";
 import { getUser } from "@/lib/auth";
 import type { Threat } from "@/types";
@@ -125,6 +126,7 @@ export default function ThreatsPage() {
   };
 
   return (
+    <AppShell>
     <div className="p-6 max-w-6xl mx-auto">
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
@@ -282,5 +284,6 @@ export default function ThreatsPage() {
         </div>
       )}
     </div>
+    </AppShell>
   );
 }

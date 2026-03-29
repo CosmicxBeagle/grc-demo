@@ -28,3 +28,10 @@ export function clearSession() {
 export function isLoggedIn(): boolean {
   return !!getToken();
 }
+
+export function getSession(): { token: string; user: User } | null {
+  const token = getToken();
+  const user  = getUser();
+  if (!token || !user) return null;
+  return { token, user };
+}

@@ -1,4 +1,4 @@
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, Field, model_validator
 from typing import Optional
 from datetime import datetime, date
 
@@ -250,6 +250,15 @@ class PciTestingBreakdown(BaseModel):
     complete: int = 0
     failed: int = 0
 
+class RiskAgingBuckets(BaseModel):
+    field_0_30:    int = Field(0, alias="0_30")
+    field_30_60:   int = Field(0, alias="30_60")
+    field_60_90:   int = Field(0, alias="60_90")
+    field_90_180:  int = Field(0, alias="90_180")
+    field_180_365: int = Field(0, alias="180_365")
+    field_365_plus: int = Field(0, alias="365_plus")
+    model_config = {"populate_by_name": True}
+
 class DashboardStats(BaseModel):
     total_controls: int
     active_controls: int
@@ -270,7 +279,8 @@ class DashboardStats(BaseModel):
     pci_testing: PciTestingBreakdown = PciTestingBreakdown()
     exception_pending: int = 0
     exception_approved: int = 0
-    exception_expiring_soon: int = 0   # approved, expiry within 30 days
+    exception_expiring_soon: int = 0
+    risk_aging: RiskAgingBuckets = RiskAgingBuckets()
 
 
 # ── Control Exceptions ─────────────────────────────────────────────────────

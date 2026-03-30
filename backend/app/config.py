@@ -21,6 +21,13 @@ class Settings(BaseSettings):
     okta_client_id: str = ""       # Okta app client ID (frontend SPA app)
     okta_audience: str = "api://default"  # Okta authorization server audience
 
+    # ── Azure Blob Storage (evidence files) ──────────────────────────────────
+    # Leave blank to use local filesystem (dev / SQLite mode).
+    # Set to just the storage account NAME (e.g. "mycompanygrc") to enable.
+    # Container Apps managed identity is used automatically — no keys needed.
+    azure_storage_account: str = ""
+    azure_storage_container: str = "evidence"
+
     # ── Email (Risk Review notifications) ────────────────────────────────────
     # Leave blank to disable sending — emails will be logged to console only.
     smtp_host: str = ""

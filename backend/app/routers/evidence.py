@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, UploadFile, File, Form
+from fastapi.responses import Response
 from sqlalchemy.orm import Session
 from app.db.database import get_db
 from app.schemas.schemas import EvidenceOut
@@ -22,6 +23,21 @@ async def upload_evidence(
         file=file,
         description=description,
         uploader_id=current_user.id,
+    )
+
+
+@router.get("/{evidence_id}/download")
+def download_evidence(
+    evidence_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_permission("evidence:read")),
+):
+    data, content_type, filename = EvidenceService(db).download_evidence(evidence_id)
+    safe_name = filename.replace('"', "")
+    return Response(
+        content=data,
+        media_type=content_type,
+        headers={"Content-Disposition": f'attachment; filename="{safe_name}"'},
     )
 
 

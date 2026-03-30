@@ -1,10 +1,10 @@
 import uuid
-import shutil
 from pathlib import Path
 from fastapi import UploadFile, HTTPException
 from sqlalchemy.orm import Session
 
 from app.config import settings
+from app import storage as evidence_storage
 from app.repositories.repositories import (
     UserRepository, ControlRepository, TestCycleRepository,
     AssignmentRepository, EvidenceRepository,
@@ -264,20 +264,14 @@ class EvidenceService:
                 detail=f"File exceeds the {EVIDENCE_MAX_BYTES // (1024 * 1024)} MB upload limit.",
             )
 
-        upload_dir = Path(settings.evidence_upload_dir) / str(assignment_id)
-        upload_dir.mkdir(parents=True, exist_ok=True)
-
-        stored_name = f"{uuid.uuid4().hex}{ext}"
-        dest = upload_dir / stored_name
-
-        with dest.open("wb") as buf:
-            buf.write(contents)
+        storage_key = evidence_storage.upload(contents, ext, assignment_id)
+        stored_name = Path(storage_key).name
 
         return self.evidence_repo.create(
             assignment_id=assignment_id,
             filename=stored_name,
             original_filename=file.filename or stored_name,
-            file_path=str(dest),
+            file_path=storage_key,
             description=description,
             uploaded_by=uploader_id,
         )
@@ -286,10 +280,19 @@ class EvidenceService:
         ev = self.evidence_repo.get_by_id(evidence_id)
         if not ev:
             raise HTTPException(status_code=404, detail="Evidence not found")
-        p = Path(ev.file_path)
-        if p.exists():
-            p.unlink()
+        evidence_storage.delete(ev.file_path)
         self.evidence_repo.delete(ev)
+
+    def download_evidence(self, evidence_id: int) -> tuple[bytes, str, str]:
+        """Returns (bytes, content_type, original_filename)."""
+        ev = self.evidence_repo.get_by_id(evidence_id)
+        if not ev:
+            raise HTTPException(status_code=404, detail="Evidence not found")
+        try:
+            data, content_type = evidence_storage.download(ev.file_path)
+        except FileNotFoundError:
+            raise HTTPException(status_code=404, detail="Evidence file not found in storage")
+        return data, content_type, ev.original_filename
 
 
 # ── Dashboard Service ──────────────────────────────────────────────────────

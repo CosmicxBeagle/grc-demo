@@ -332,6 +332,7 @@ export default function CycleDetailPage({ params }: { params: { id: string } }) 
   );
 
   return (
+    <AppShell>
     <div className="p-8 max-w-5xl mx-auto">
 
       {/* Toast */}

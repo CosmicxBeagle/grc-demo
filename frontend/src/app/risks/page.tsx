@@ -153,8 +153,16 @@ export default function RisksPage() {
       setThreats(tRes.data);
       setControls(cRes.data);
       setUsers(uRes.data);
-    } catch {
-      setError("Failed to load data");
+    } catch (err: any) {
+      const status = err?.response?.status;
+      const detail = err?.response?.data?.detail ?? err?.message ?? "unknown";
+      if (status === 401) {
+        setError("Session expired — please log in again.");
+      } else if (status === 403) {
+        setError(`Permission denied (${detail})`);
+      } else {
+        setError(`Failed to load data (${status ?? "network error"}: ${detail})`);
+      }
     } finally {
       setLoading(false);
     }
@@ -307,8 +315,11 @@ export default function RisksPage() {
       </div>
 
       {error && (
-        <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded-md text-sm">
-          {error}
+        <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded-md text-sm flex items-center justify-between">
+          <span>{error}</span>
+          <button onClick={() => { setError(""); load(); }} className="ml-4 px-3 py-1 text-xs font-medium bg-red-100 hover:bg-red-200 rounded-md">
+            Retry
+          </button>
         </div>
       )}
 

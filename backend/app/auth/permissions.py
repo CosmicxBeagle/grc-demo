@@ -107,6 +107,7 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
         "risks:read",
         "assets:read",
         "threats:read",
+        "users:read",
         "reports:export",
     },
 
@@ -120,6 +121,7 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
         "risks:read",
         "assets:read",
         "threats:read",
+        "users:read",
         "reports:export",
     },
 
@@ -132,6 +134,7 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
         "deficiencies:read",
         "risks:read", "risks:review_update",
         "assets:read",
+        "users:read",
         "reports:export",
     },
 
@@ -145,6 +148,7 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
         "risks:read",
         "assets:read",
         "threats:read",
+        "users:read",
         "reports:export",
     },
 }

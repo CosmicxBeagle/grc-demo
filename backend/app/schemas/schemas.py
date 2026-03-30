@@ -436,12 +436,16 @@ class RiskOut(BaseModel):
     updated_at: datetime
     asset: Optional[AssetOut] = None
     threat: Optional[ThreatOut] = None
+    days_open: int = 0
     controls: list[RiskControlOut] = []
     model_config = {"from_attributes": True}
 
     @model_validator(mode='after')
-    def compute_score(self):
+    def compute_fields(self):
         self.inherent_score = self.likelihood * self.impact
+        if self.created_at:
+            from datetime import datetime as _dt
+            self.days_open = (_dt.utcnow() - self.created_at).days
         return self
 
 class RiskControlCreate(BaseModel):

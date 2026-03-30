@@ -300,9 +300,10 @@ class DashboardService:
         self.cycle_repo = TestCycleRepository(db)
         self.assign_repo = AssignmentRepository(db)
         self.evidence_repo = EvidenceRepository(db)
-        from app.repositories.repositories import DeficiencyRepository, ControlExceptionRepository
+        from app.repositories.repositories import DeficiencyRepository, ControlExceptionRepository, RiskRepository
         self.deficiency_repo = DeficiencyRepository(db)
         self.exception_repo = ControlExceptionRepository(db)
+        self.risk_repo = RiskRepository(db)
 
     def _pci_testing_breakdown(self, all_controls):
         """
@@ -376,6 +377,7 @@ class DashboardService:
             "deficiency_remediated": def_counts.get("remediated", 0),
             "deficiency_risk_accepted": def_counts.get("risk_accepted", 0),
             "pci_testing": self._pci_testing_breakdown(all_controls),
+            "risk_aging": self._risk_aging_breakdown(self.risk_repo.get_all()),
             **self._exception_stats(),
         }
 
@@ -391,6 +393,28 @@ class DashboardService:
                 if e.status == "approved" and e.expiry_date and e.expiry_date <= soon
             ),
         }
+
+    def _risk_aging_breakdown(self, risks):
+        from datetime import datetime
+        today = datetime.utcnow()
+        buckets = {"0_30": 0, "30_60": 0, "60_90": 0, "90_180": 0, "180_365": 0, "365_plus": 0}
+        for r in risks:
+            if not r.created_at:
+                continue
+            days = (today - r.created_at).days
+            if days <= 30:
+                buckets["0_30"] += 1
+            elif days <= 60:
+                buckets["30_60"] += 1
+            elif days <= 90:
+                buckets["60_90"] += 1
+            elif days <= 180:
+                buckets["90_180"] += 1
+            elif days <= 365:
+                buckets["180_365"] += 1
+            else:
+                buckets["365_plus"] += 1
+        return buckets
 
 
 # ── Deficiency Service ─────────────────────────────────────────────────────

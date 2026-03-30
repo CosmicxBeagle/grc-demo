@@ -8,7 +8,7 @@ import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, Legend, RadialBarChart, RadialBar,
 } from "recharts";
-import type { PciTestingBreakdown } from "@/types";
+import type { PciTestingBreakdown, RiskAgingBuckets } from "@/types";
 
 const STATUS_COLORS: Record<string, string> = {
   "Not Started": "#e5e7eb",
@@ -18,6 +18,15 @@ const STATUS_COLORS: Record<string, string> = {
 };
 
 const FRAMEWORK_COLORS = ["#7c3aed", "#0891b2", "#ea580c", "#e11d48"];
+
+const AGING_BUCKETS = [
+  { key: "0_30",    label: "0 – 30 days",    color: "#22c55e" },  // green — fresh
+  { key: "30_60",   label: "30 – 60 days",   color: "#84cc16" },  // lime
+  { key: "60_90",   label: "60 – 90 days",   color: "#f59e0b" },  // amber
+  { key: "90_180",  label: "90 – 180 days",  color: "#f97316" },  // orange
+  { key: "180_365", label: "180 – 365 days", color: "#ef4444" },  // red
+  { key: "365_plus",label: "365+ days",      color: "#7f1d1d" },  // dark red — critical
+] as const;
 
 const PCI_STATUS_CONFIG = [
   { key: "complete",     label: "Complete",     color: "#22c55e" },
@@ -276,6 +285,84 @@ export default function DashboardPage() {
                     { fill: "#9ca3af" },
                   ].map((entry, i) => (
                     <Cell key={i} fill={entry.fill} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+
+        {/* Risk Aging */}
+        {stats.risk_aging && Object.values(stats.risk_aging).some(v => v > 0) && (
+          <div className="bg-white rounded-xl border border-gray-200 p-6">
+            <div className="flex items-center justify-between mb-5">
+              <div>
+                <h2 className="text-sm font-semibold text-gray-700">Risk Age Distribution</h2>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  How long open risks have been on the register
+                </p>
+              </div>
+              <div className="text-right">
+                {(stats.risk_aging["180_365"] + stats.risk_aging["365_plus"]) > 0 && (
+                  <span className="inline-flex items-center gap-1.5 text-xs font-medium text-red-700 bg-red-50 border border-red-200 rounded-full px-3 py-1">
+                    <span className="w-2 h-2 rounded-full bg-red-500 shrink-0" />
+                    {stats.risk_aging["180_365"] + stats.risk_aging["365_plus"]} risk{(stats.risk_aging["180_365"] + stats.risk_aging["365_plus"]) !== 1 ? "s" : ""} over 180 days
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {/* Stacked age bar */}
+            {(() => {
+              const total = Object.values(stats.risk_aging).reduce((a, b) => a + b, 0);
+              return total > 0 ? (
+                <div className="mb-5">
+                  <div className="flex h-6 rounded-full overflow-hidden bg-gray-100 gap-px">
+                    {AGING_BUCKETS.map(({ key, color, label }) => {
+                      const val = stats.risk_aging[key as keyof RiskAgingBuckets];
+                      const pct = (val / total) * 100;
+                      return pct > 0 ? (
+                        <div
+                          key={key}
+                          style={{ width: `${pct}%`, backgroundColor: color }}
+                          title={`${label}: ${val}`}
+                          className="transition-all"
+                        />
+                      ) : null;
+                    })}
+                  </div>
+                  <div className="flex flex-wrap gap-x-4 gap-y-1.5 mt-3">
+                    {AGING_BUCKETS.map(({ key, label, color }) => {
+                      const val = stats.risk_aging[key as keyof RiskAgingBuckets];
+                      return val > 0 ? (
+                        <div key={key} className="flex items-center gap-1.5 text-xs text-gray-600">
+                          <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: color }} />
+                          {label}: <b>{val}</b>
+                        </div>
+                      ) : null;
+                    })}
+                  </div>
+                </div>
+              ) : null;
+            })()}
+
+            {/* Bar chart */}
+            <ResponsiveContainer width="100%" height={180}>
+              <BarChart
+                data={AGING_BUCKETS.map(({ key, label, color }) => ({
+                  name: label,
+                  value: stats.risk_aging[key as keyof RiskAgingBuckets],
+                  fill: color,
+                }))}
+                barSize={48}
+                margin={{ top: 4, right: 0, left: -20, bottom: 0 }}
+              >
+                <XAxis dataKey="name" tick={{ fontSize: 10 }} />
+                <YAxis allowDecimals={false} tick={{ fontSize: 10 }} />
+                <Tooltip formatter={(v: number) => [v, "Risks"]} />
+                <Bar dataKey="value" radius={[4, 4, 0, 0]}>
+                  {AGING_BUCKETS.map(({ key, color }) => (
+                    <Cell key={key} fill={color} />
                   ))}
                 </Bar>
               </BarChart>

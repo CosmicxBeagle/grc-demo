@@ -197,6 +197,7 @@ export interface Risk {
   likelihood: number;
   impact: number;
   inherent_score: number;
+  days_open: number;
   treatment?: RiskTreatment;
   status: RiskStatus;
   owner?: string;
@@ -308,6 +309,15 @@ export interface ApprovalWorkflow {
 
 // ─────────────────────────────────────────────────────────────────────────────
 
+export interface RiskAgingBuckets {
+  "0_30":    number;
+  "30_60":   number;
+  "60_90":   number;
+  "90_180":  number;
+  "180_365": number;
+  "365_plus": number;
+}
+
 export interface DashboardStats {
   total_controls: number;
   active_controls: number;
@@ -329,6 +339,7 @@ export interface DashboardStats {
   exception_pending: number;
   exception_approved: number;
   exception_expiring_soon: number;
+  risk_aging: RiskAgingBuckets;
 }
 
 // ── Risk Reviews ──────────────────────────────────────────────────────────────

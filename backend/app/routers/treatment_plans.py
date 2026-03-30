@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from app.db.database import get_db
-from app.auth.local_auth import get_current_user
+from app.auth.permissions import require_permission
 from app.models.models import User
 from app.schemas.schemas import (
     TreatmentPlanCreate, TreatmentPlanUpdate, TreatmentPlanOut,
@@ -19,7 +19,7 @@ router = APIRouter(prefix="/treatment-plans", tags=["treatment-plans"])
 def get_plan_for_risk(
     risk_id: int,
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_user),
+    _: User = Depends(require_permission("risks:read")),
 ):
     return TreatmentPlanService.get_by_risk(db, risk_id)
 
@@ -28,7 +28,7 @@ def get_plan_for_risk(
 def create_plan(
     data: TreatmentPlanCreate,
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_user),
+    _: User = Depends(require_permission("risks:write")),
 ):
     return TreatmentPlanService.create(db, data)
 
@@ -38,7 +38,7 @@ def update_plan(
     plan_id: int,
     data: TreatmentPlanUpdate,
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_user),
+    _: User = Depends(require_permission("risks:write")),
 ):
     return TreatmentPlanService.update(db, plan_id, data)
 
@@ -47,7 +47,7 @@ def update_plan(
 def delete_plan(
     plan_id: int,
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_user),
+    _: User = Depends(require_permission("risks:write")),
 ):
     TreatmentPlanService.delete(db, plan_id)
 
@@ -59,7 +59,7 @@ def add_milestone(
     plan_id: int,
     data: TreatmentMilestoneCreate,
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_user),
+    _: User = Depends(require_permission("risks:write")),
 ):
     return TreatmentPlanService.add_milestone(db, plan_id, data)
 
@@ -69,7 +69,7 @@ def update_milestone(
     milestone_id: int,
     data: TreatmentMilestoneUpdate,
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_user),
+    _: User = Depends(require_permission("risks:write")),
 ):
     return TreatmentPlanService.update_milestone(db, milestone_id, data)
 
@@ -78,6 +78,6 @@ def update_milestone(
 def delete_milestone(
     milestone_id: int,
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_user),
+    _: User = Depends(require_permission("risks:write")),
 ):
     TreatmentPlanService.delete_milestone(db, milestone_id)

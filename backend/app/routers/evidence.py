@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from app.db.database import get_db
 from app.schemas.schemas import EvidenceOut
 from app.services.services import EvidenceService
-from app.auth.local_auth import get_current_user
+from app.auth.permissions import require_permission
 from app.models.models import User
 
 router = APIRouter(prefix="/evidence", tags=["evidence"])
@@ -15,7 +15,7 @@ async def upload_evidence(
     description: str = Form(""),
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission("evidence:write")),
 ):
     return await EvidenceService(db).upload_evidence(
         assignment_id=assignment_id,
@@ -29,6 +29,6 @@ async def upload_evidence(
 def delete_evidence(
     evidence_id: int,
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_user),
+    _: User = Depends(require_permission("evidence:write")),
 ):
     EvidenceService(db).delete_evidence(evidence_id)

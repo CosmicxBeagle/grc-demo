@@ -291,6 +291,10 @@ class ControlExceptionCreate(ControlExceptionBase):
     control_id: int
     requested_by: Optional[int] = None
 
+class ApproverNotesRequest(BaseModel):
+    notes: Optional[str] = None
+
+
 class ControlExceptionUpdate(BaseModel):
     title: Optional[str] = None
     exception_type: Optional[str] = None

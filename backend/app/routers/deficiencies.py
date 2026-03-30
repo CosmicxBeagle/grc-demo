@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from app.db.database import get_db
 from app.schemas.schemas import DeficiencyCreate, DeficiencyUpdate, DeficiencyOut
 from app.services.services import DeficiencyService
-from app.auth.local_auth import get_current_user
+from app.auth.permissions import require_permission
 from app.models.models import User
 
 router = APIRouter(prefix="/deficiencies", tags=["deficiencies"])
@@ -13,7 +13,7 @@ router = APIRouter(prefix="/deficiencies", tags=["deficiencies"])
 def list_deficiencies(
     status: str = Query(None),
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_user),
+    _: User = Depends(require_permission("deficiencies:read")),
 ):
     return DeficiencyService(db).list_all(status)
 
@@ -22,7 +22,7 @@ def list_deficiencies(
 def create_deficiency(
     data: DeficiencyCreate,
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_user),
+    _: User = Depends(require_permission("deficiencies:write")),
 ):
     return DeficiencyService(db).create(data)
 
@@ -32,7 +32,7 @@ def update_deficiency(
     deficiency_id: int,
     data: DeficiencyUpdate,
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_user),
+    _: User = Depends(require_permission("deficiencies:write")),
 ):
     return DeficiencyService(db).update(deficiency_id, data)
 
@@ -41,6 +41,6 @@ def update_deficiency(
 def delete_deficiency(
     deficiency_id: int,
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_user),
+    _: User = Depends(require_permission("deficiencies:write")),
 ):
     DeficiencyService(db).delete(deficiency_id)

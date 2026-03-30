@@ -13,12 +13,17 @@ from openpyxl.styles import (
 from openpyxl.utils import get_column_letter
 
 from app.db.database import get_db
+from app.auth.permissions import require_permission
 from app.repositories.repositories import (
     ControlRepository, DeficiencyRepository,
     RiskRepository, TestCycleRepository, AssignmentRepository,
 )
 
-router = APIRouter(prefix="/exports", tags=["exports"])
+router = APIRouter(
+    prefix="/exports",
+    tags=["exports"],
+    dependencies=[Depends(require_permission("reports:export"))],
+)
 
 
 # ── Style helpers ──────────────────────────────────────────────────────────

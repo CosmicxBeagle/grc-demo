@@ -228,6 +228,13 @@ class AssignmentService:
 
 # ── Evidence Service ───────────────────────────────────────────────────────
 
+EVIDENCE_ALLOWED_EXTENSIONS = {
+    ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".csv", ".txt",
+    ".png", ".jpg", ".jpeg", ".gif", ".zip", ".msg", ".eml",
+}
+EVIDENCE_MAX_BYTES = 50 * 1024 * 1024  # 50 MB
+
+
 class EvidenceService:
     def __init__(self, db: Session):
         self.assignment_repo = AssignmentRepository(db)
@@ -238,15 +245,33 @@ class EvidenceService:
         if not assignment:
             raise HTTPException(status_code=404, detail="Assignment not found")
 
+        # ── Validate extension ────────────────────────────────────────────
+        ext = Path(file.filename).suffix.lower() if file.filename else ""
+        if ext not in EVIDENCE_ALLOWED_EXTENSIONS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"File type '{ext or '(none)'}' is not allowed. "
+                       f"Allowed: {', '.join(sorted(EVIDENCE_ALLOWED_EXTENSIONS))}",
+            )
+
+        # ── Read + validate size / emptiness ─────────────────────────────
+        contents = await file.read()
+        if not contents:
+            raise HTTPException(status_code=400, detail="Uploaded file is empty.")
+        if len(contents) > EVIDENCE_MAX_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail=f"File exceeds the {EVIDENCE_MAX_BYTES // (1024 * 1024)} MB upload limit.",
+            )
+
         upload_dir = Path(settings.evidence_upload_dir) / str(assignment_id)
         upload_dir.mkdir(parents=True, exist_ok=True)
 
-        ext = Path(file.filename).suffix if file.filename else ""
         stored_name = f"{uuid.uuid4().hex}{ext}"
         dest = upload_dir / stored_name
 
         with dest.open("wb") as buf:
-            shutil.copyfileobj(file.file, buf)
+            buf.write(contents)
 
         return self.evidence_repo.create(
             assignment_id=assignment_id,

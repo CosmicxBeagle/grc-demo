@@ -140,7 +140,10 @@ class ControlService:
 
     def update_control(self, control_id: int, data: ControlUpdate):
         ctrl = self.get_control(control_id)
-        return self.repo.update(ctrl, data.model_dump(exclude_none=True))
+        mappings = None
+        if data.mappings is not None:
+            mappings = [m.model_dump() for m in data.mappings]
+        return self.repo.update(ctrl, data.model_dump(exclude_none=True, exclude={"mappings"}), mappings=mappings)
 
     def delete_control(self, control_id: int):
         ctrl = self.get_control(control_id)

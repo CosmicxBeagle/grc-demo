@@ -7,7 +7,7 @@ import FrameworkBadge from "@/components/FrameworkBadge";
 import { controlsApi, risksApi, exceptionsApi } from "@/lib/api";
 import { getUser } from "@/lib/auth";
 import type { Control, ControlCycleHistory, Risk, SoxItgcDomain, ControlException, ExceptionStatus } from "@/types";
-import { ArrowLeftIcon, PencilSquareIcon, TrashIcon, CheckIcon, XMarkIcon, PaperClipIcon } from "@heroicons/react/24/outline";
+import { ArrowLeftIcon, PencilSquareIcon, TrashIcon, CheckIcon, XMarkIcon, PaperClipIcon, PlusIcon } from "@heroicons/react/24/outline";
 import Link from "next/link";
 
 function scoreBgClass(score: number) {
@@ -45,9 +45,15 @@ export default function ControlDetailPage() {
   const [controlExceptions, setControlExceptions] = useState<ControlException[]>([]);
   const [editing, setEditing] = useState(false);
   const [form, setForm]       = useState({ control_id: "", title: "", description: "", owner: "", status: "active", control_type: "", frequency: "", sox_in_scope: false, sox_itgc_domain: "", sox_systems: "", sox_assertions: "" });
+  const [mappings, setMappings] = useState<{ framework: string; framework_version: string; framework_ref: string; framework_description: string }[]>([]);
+
+  const addMapping = () => setMappings(prev => [...prev, { framework: "", framework_version: "", framework_ref: "", framework_description: "" }]);
+  const removeMapping = (i: number) => setMappings(prev => prev.filter((_, idx) => idx !== i));
+  const updateMapping = (i: number, field: string, value: string) =>
+    setMappings(prev => prev.map((m, idx) => idx === i ? { ...m, [field]: value } : m));
 
   useEffect(() => {
-    if (id === "new") { setEditing(true); return; }
+    if (id === "new") { setEditing(true); setMappings([]); return; }
     const numId = Number(id);
     controlsApi.get(numId).then((r) => {
       setCtrl(r.data);
@@ -64,6 +70,12 @@ export default function ControlDetailPage() {
         sox_systems: r.data.sox_systems ?? "",
         sox_assertions: r.data.sox_assertions ?? "",
       });
+      setMappings(r.data.mappings.map(m => ({
+        framework: m.framework,
+        framework_version: m.framework_version ?? "",
+        framework_ref: m.framework_ref,
+        framework_description: m.framework_description ?? "",
+      })));
     });
     controlsApi.cycles(numId).then((r) => setCycles(r.data));
     risksApi.forControl(numId).then((r) => setLinkedRisks(r.data)).catch(() => setLinkedRisks([]));
@@ -71,13 +83,20 @@ export default function ControlDetailPage() {
   }, [id]);
 
   const save = async () => {
+    const validMappings = mappings.filter(m => m.framework && m.framework_ref);
     if (id === "new") {
-      const r = await controlsApi.create(form);
+      const r = await controlsApi.create({ ...form, mappings: validMappings });
       router.push(`/controls/${r.data.id}`);
     } else {
-      await controlsApi.update(Number(id), form);
+      await controlsApi.update(Number(id), { ...form, mappings: validMappings });
       const r = await controlsApi.get(Number(id));
       setCtrl(r.data);
+      setMappings(r.data.mappings.map(m => ({
+        framework: m.framework,
+        framework_version: m.framework_version ?? "",
+        framework_ref: m.framework_ref,
+        framework_description: m.framework_description ?? "",
+      })));
       setEditing(false);
     }
   };
@@ -347,34 +366,118 @@ export default function ControlDetailPage() {
             </div>
           </div>
 
-          {/* Framework mappings table */}
-          {ctrl && ctrl.mappings.length > 0 && (
-            <div>
-              <h2 className="text-sm font-semibold text-gray-700 mb-3">Framework Mappings</h2>
-              <div className="overflow-hidden rounded-lg border border-gray-200">
-                <table className="w-full text-sm">
-                  <thead className="bg-gray-50 border-b border-gray-200">
-                    <tr>
-                      <th className="text-left px-4 py-2 font-medium text-gray-500">Framework</th>
-                      <th className="text-left px-4 py-2 font-medium text-gray-500">Version</th>
-                      <th className="text-left px-4 py-2 font-medium text-gray-500">Reference</th>
-                      <th className="text-left px-4 py-2 font-medium text-gray-500">Description</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {ctrl.mappings.map((m) => (
-                      <tr key={m.id} className="border-b border-gray-100 last:border-0">
-                        <td className="px-4 py-2"><FrameworkBadge framework={m.framework} /></td>
-                        <td className="px-4 py-2 text-xs text-gray-500">{m.framework_version ?? "—"}</td>
-                        <td className="px-4 py-2 font-mono text-xs text-gray-700">{m.framework_ref}</td>
-                        <td className="px-4 py-2 text-gray-600">{m.framework_description ?? "—"}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+          {/* Framework mappings */}
+          <div>
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-sm font-semibold text-gray-700">Framework Mappings</h2>
+              {editing && (
+                <button
+                  type="button"
+                  onClick={addMapping}
+                  className="inline-flex items-center gap-1 text-xs text-brand-600 hover:text-brand-700 border border-brand-200 rounded px-2 py-1"
+                >
+                  <PlusIcon className="w-3.5 h-3.5" /> Add Mapping
+                </button>
+              )}
             </div>
-          )}
+
+            {editing ? (
+              <div className="space-y-3">
+                {mappings.length === 0 && (
+                  <p className="text-sm text-gray-400 italic">No framework mappings yet. Click &quot;Add Mapping&quot; to associate this control with a framework.</p>
+                )}
+                {mappings.map((m, i) => (
+                  <div key={i} className="grid grid-cols-12 gap-2 items-start border border-gray-200 rounded-lg p-3 bg-gray-50">
+                    <div className="col-span-3">
+                      <label className="text-xs text-gray-400 block mb-1">Framework *</label>
+                      <select
+                        value={m.framework}
+                        onChange={e => updateMapping(i, "framework", e.target.value)}
+                        className="w-full border border-gray-200 rounded px-2 py-1.5 text-sm bg-white"
+                      >
+                        <option value="">— select —</option>
+                        <option value="PCI">PCI DSS</option>
+                        <option value="NIST">NIST CSF</option>
+                        <option value="ISO27001">ISO 27001</option>
+                        <option value="SOC2">SOC 2</option>
+                        <option value="CIS">CIS Controls</option>
+                        <option value="SOX">SOX</option>
+                        <option value="HIPAA">HIPAA</option>
+                        <option value="GDPR">GDPR</option>
+                        <option value="CCPA">CCPA</option>
+                        <option value="CUSTOM">Custom</option>
+                      </select>
+                    </div>
+                    <div className="col-span-2">
+                      <label className="text-xs text-gray-400 block mb-1">Version</label>
+                      <input
+                        value={m.framework_version}
+                        onChange={e => updateMapping(i, "framework_version", e.target.value)}
+                        placeholder="e.g. v4.0"
+                        className="w-full border border-gray-200 rounded px-2 py-1.5 text-sm"
+                      />
+                    </div>
+                    <div className="col-span-3">
+                      <label className="text-xs text-gray-400 block mb-1">Reference *</label>
+                      <input
+                        value={m.framework_ref}
+                        onChange={e => updateMapping(i, "framework_ref", e.target.value)}
+                        placeholder="e.g. 8.3.1"
+                        className="w-full border border-gray-200 rounded px-2 py-1.5 text-sm"
+                      />
+                    </div>
+                    <div className="col-span-3">
+                      <label className="text-xs text-gray-400 block mb-1">Description</label>
+                      <input
+                        value={m.framework_description}
+                        onChange={e => updateMapping(i, "framework_description", e.target.value)}
+                        placeholder="Optional note"
+                        className="w-full border border-gray-200 rounded px-2 py-1.5 text-sm"
+                      />
+                    </div>
+                    <div className="col-span-1 flex items-end pb-1.5">
+                      <button
+                        type="button"
+                        onClick={() => removeMapping(i)}
+                        className="text-red-400 hover:text-red-600"
+                      >
+                        <XMarkIcon className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <>
+                {(!ctrl || ctrl.mappings.length === 0) ? (
+                  <p className="text-sm text-gray-400 italic">No framework mappings.</p>
+                ) : (
+                  <div className="overflow-hidden rounded-lg border border-gray-200">
+                    <table className="w-full text-sm">
+                      <thead className="bg-gray-50 border-b border-gray-200">
+                        <tr>
+                          <th className="text-left px-4 py-2 font-medium text-gray-500">Framework</th>
+                          <th className="text-left px-4 py-2 font-medium text-gray-500">Version</th>
+                          <th className="text-left px-4 py-2 font-medium text-gray-500">Reference</th>
+                          <th className="text-left px-4 py-2 font-medium text-gray-500">Description</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {ctrl!.mappings.map((m) => (
+                          <tr key={m.id} className="border-b border-gray-100 last:border-0">
+                            <td className="px-4 py-2"><FrameworkBadge framework={m.framework} /></td>
+                            <td className="px-4 py-2 text-xs text-gray-500">{m.framework_version ?? "—"}</td>
+                            <td className="px-4 py-2 font-mono text-xs text-gray-700">{m.framework_ref}</td>
+                            <td className="px-4 py-2 text-gray-600">{m.framework_description ?? "—"}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
         </div>
 
         {/* Test Cycle History */}

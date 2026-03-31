@@ -82,6 +82,7 @@ class ControlUpdate(BaseModel):
     sox_itgc_domain: Optional[str] = None
     sox_systems: Optional[str] = None
     sox_assertions: Optional[str] = None
+    mappings: Optional[list[ControlMappingCreate]] = None  # None = don't touch; [] = clear all
 
 class ControlOut(ControlBase):
     id: int

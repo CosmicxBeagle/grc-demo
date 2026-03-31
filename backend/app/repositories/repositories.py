@@ -63,11 +63,16 @@ class ControlRepository:
         self.db.refresh(control)
         return control
 
-    def update(self, control: Control, data: dict) -> Control:
+    def update(self, control: Control, data: dict, mappings: list[dict] | None = None) -> Control:
         for k, v in data.items():
             if v is not None:
                 setattr(control, k, v)
         control.updated_at = datetime.utcnow()
+        if mappings is not None:
+            # Replace all mappings — delete existing then insert new set
+            self.db.query(ControlMapping).filter(ControlMapping.control_id == control.id).delete()
+            for m in mappings:
+                self.db.add(ControlMapping(control_id=control.id, **m))
         self.db.commit()
         self.db.refresh(control)
         return control

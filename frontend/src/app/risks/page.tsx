@@ -610,6 +610,7 @@ export default function RisksPage() {
                 <th className="text-left px-4 py-3 font-semibold text-gray-600">Score</th>
                 <th className="text-left px-4 py-3 font-semibold text-gray-600">Treatment</th>
                 <th className="text-left px-4 py-3 font-semibold text-gray-600">Status</th>
+                <th className="text-left px-4 py-3 font-semibold text-gray-600">Date Created</th>
                 <th className="text-left px-4 py-3 font-semibold text-gray-600">Controls</th>
                 <th className="text-right px-4 py-3 font-semibold text-gray-600">Actions</th>
               </tr>
@@ -652,6 +653,12 @@ export default function RisksPage() {
                       <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium capitalize ${statusBadge(risk.status)}`}>
                         {risk.status}
                       </span>
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="text-xs text-gray-700">
+                        {new Date(risk.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                      </div>
+                      <div className="text-xs text-gray-400 mt-0.5">{risk.days_open}d open</div>
                     </td>
                     <td className="px-4 py-3">
                       <span className="inline-flex items-center px-2 py-0.5 rounded text-xs bg-indigo-50 text-indigo-700 font-medium">

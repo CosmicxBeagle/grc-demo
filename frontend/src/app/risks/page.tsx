@@ -611,6 +611,7 @@ export default function RisksPage() {
                 <th className="text-left px-4 py-3 font-semibold text-gray-600">Treatment</th>
                 <th className="text-left px-4 py-3 font-semibold text-gray-600">Status</th>
                 <th className="text-left px-4 py-3 font-semibold text-gray-600">Date Created</th>
+                <th className="text-left px-4 py-3 font-semibold text-gray-600">Age</th>
                 <th className="text-left px-4 py-3 font-semibold text-gray-600">Controls</th>
                 <th className="text-right px-4 py-3 font-semibold text-gray-600">Actions</th>
               </tr>
@@ -654,11 +655,19 @@ export default function RisksPage() {
                         {risk.status}
                       </span>
                     </td>
+                    <td className="px-4 py-3 text-xs text-gray-700 whitespace-nowrap">
+                      {new Date(risk.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                    </td>
                     <td className="px-4 py-3">
-                      <div className="text-xs text-gray-700">
-                        {new Date(risk.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
-                      </div>
-                      <div className="text-xs text-gray-400 mt-0.5">{risk.days_open}d open</div>
+                      <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold whitespace-nowrap ${
+                        risk.days_open <= 30  ? "bg-green-100 text-green-700" :
+                        risk.days_open <= 60  ? "bg-yellow-100 text-yellow-700" :
+                        risk.days_open <= 90  ? "bg-orange-100 text-orange-700" :
+                        risk.days_open <= 180 ? "bg-red-100 text-red-700" :
+                                                "bg-red-200 text-red-900"
+                      }`}>
+                        {risk.days_open}d
+                      </span>
                     </td>
                     <td className="px-4 py-3">
                       <span className="inline-flex items-center px-2 py-0.5 rounded text-xs bg-indigo-50 text-indigo-700 font-medium">

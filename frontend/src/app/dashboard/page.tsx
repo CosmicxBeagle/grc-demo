@@ -292,32 +292,42 @@ export default function DashboardPage() {
           </div>
         )}
 
-        {/* Risk Aging */}
-        {stats.risk_aging && Object.values(stats.risk_aging).some(v => v > 0) && (
+        {/* Risk Aging — always visible */}
+        {stats.risk_aging && (
           <div className="bg-white rounded-xl border border-gray-200 p-6">
+            {/* Header */}
             <div className="flex items-center justify-between mb-5">
               <div>
                 <h2 className="text-sm font-semibold text-gray-700">Risk Age Distribution</h2>
-                <p className="text-xs text-gray-400 mt-0.5">
-                  How long open risks have been on the register
-                </p>
+                <p className="text-xs text-gray-400 mt-0.5">How long open risks have been on the register</p>
               </div>
-              <div className="text-right">
-                {(stats.risk_aging["180_365"] + stats.risk_aging["365_plus"]) > 0 && (
-                  <span className="inline-flex items-center gap-1.5 text-xs font-medium text-red-700 bg-red-50 border border-red-200 rounded-full px-3 py-1">
-                    <span className="w-2 h-2 rounded-full bg-red-500 shrink-0" />
-                    {stats.risk_aging["180_365"] + stats.risk_aging["365_plus"]} risk{(stats.risk_aging["180_365"] + stats.risk_aging["365_plus"]) !== 1 ? "s" : ""} over 180 days
-                  </span>
-                )}
-              </div>
+              {(stats.risk_aging["180_365"] + stats.risk_aging["365_plus"]) > 0 && (
+                <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-red-700 bg-red-50 border border-red-200 rounded-full px-3 py-1">
+                  <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse shrink-0" />
+                  {stats.risk_aging["180_365"] + stats.risk_aging["365_plus"]} risk{(stats.risk_aging["180_365"] + stats.risk_aging["365_plus"]) !== 1 ? "s" : ""} over 180 days
+                </span>
+              )}
             </div>
 
-            {/* Stacked age bar */}
+            {/* Bucket summary cards */}
+            <div className="grid grid-cols-3 lg:grid-cols-6 gap-3 mb-5">
+              {AGING_BUCKETS.map(({ key, label, color }) => {
+                const val = stats.risk_aging[key as keyof RiskAgingBuckets];
+                return (
+                  <div key={key} className="rounded-lg border border-gray-100 p-3 text-center" style={{ borderTopWidth: 3, borderTopColor: color }}>
+                    <p className="text-2xl font-bold text-gray-900">{val}</p>
+                    <p className="text-xs text-gray-500 mt-0.5 leading-tight">{label}</p>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Stacked proportion bar */}
             {(() => {
               const total = Object.values(stats.risk_aging).reduce((a, b) => a + b, 0);
               return total > 0 ? (
                 <div className="mb-5">
-                  <div className="flex h-6 rounded-full overflow-hidden bg-gray-100 gap-px">
+                  <div className="flex h-4 rounded-full overflow-hidden bg-gray-100 gap-px">
                     {AGING_BUCKETS.map(({ key, color, label }) => {
                       const val = stats.risk_aging[key as keyof RiskAgingBuckets];
                       const pct = (val / total) * 100;
@@ -325,25 +335,16 @@ export default function DashboardPage() {
                         <div
                           key={key}
                           style={{ width: `${pct}%`, backgroundColor: color }}
-                          title={`${label}: ${val}`}
+                          title={`${label}: ${val} (${pct.toFixed(0)}%)`}
                           className="transition-all"
                         />
                       ) : null;
                     })}
                   </div>
-                  <div className="flex flex-wrap gap-x-4 gap-y-1.5 mt-3">
-                    {AGING_BUCKETS.map(({ key, label, color }) => {
-                      const val = stats.risk_aging[key as keyof RiskAgingBuckets];
-                      return val > 0 ? (
-                        <div key={key} className="flex items-center gap-1.5 text-xs text-gray-600">
-                          <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: color }} />
-                          {label}: <b>{val}</b>
-                        </div>
-                      ) : null;
-                    })}
-                  </div>
                 </div>
-              ) : null;
+              ) : (
+                <p className="text-sm text-gray-400 text-center py-4">No open risks yet.</p>
+              );
             })()}
 
             {/* Bar chart */}

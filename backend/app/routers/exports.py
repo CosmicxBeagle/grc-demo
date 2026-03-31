@@ -12,9 +12,11 @@ from openpyxl.styles import (
 )
 from openpyxl.utils import get_column_letter
 
+from datetime import date as _date
+
 from app.db.database import get_db
 from app.auth.permissions import require_permission
-from app.models.models import User
+from app.models.models import User, ControlException, TreatmentPlan, TreatmentMilestone, Risk
 from app.services.services import AuditService
 from app.repositories.repositories import (
     ControlRepository, DeficiencyRepository,
@@ -529,3 +531,268 @@ def export_sox(request: Request, db: Session = Depends(get_db), current_user: Us
     AuditService(db).log("EXPORT_GENERATED", actor=current_user, resource_type="Export",
                          resource_name="sox_itgc_scoping", request=request)
     return _xlsx_response(wb, f"sox_itgc_scoping_{datetime.utcnow().strftime('%Y%m%d')}.xlsx")
+
+
+# ── Exceptions Register export ─────────────────────────────────────────────
+
+EXCEPTION_STATUS_FILL = {
+    "approved":         GREEN_FILL,
+    "rejected":         RED_FILL,
+    "pending_approval": YELLOW_FILL,
+    "expired":          PatternFill("solid", fgColor="E5E7EB"),  # gray
+}
+
+@router.get("/exceptions")
+def export_exceptions(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission("reports:export")),
+):
+    exceptions = db.query(ControlException).order_by(ControlException.created_at.desc()).all()
+    generated = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Exceptions Register"
+    ws.freeze_panes = "A5"
+
+    _title_block(ws, "Exceptions Register", f"Exported {generated}  |  {len(exceptions)} exceptions")
+
+    cols = [
+        ("ID", 6), ("Control", 14), ("Title", 36), ("Type", 20),
+        ("Risk Level", 12), ("Status", 18),
+        ("Requested By", 22), ("Approved By", 22), ("Approver Notes", 40),
+        ("Expiry Date", 14), ("Created", 14),
+    ]
+    _header_row(ws, cols, row=4)
+
+    STATUS_LABEL = {
+        "draft": "Draft", "pending_approval": "Pending Approval",
+        "approved": "Approved", "rejected": "Rejected", "expired": "Expired",
+    }
+
+    for i, e in enumerate(exceptions):
+        fill = EXCEPTION_STATUS_FILL.get(e.status)
+        _body_row(ws, [
+            e.id,
+            e.control.control_id if e.control else "",
+            e.title,
+            (e.exception_type or "").replace("_", " ").title(),
+            (e.risk_level or "").capitalize(),
+            STATUS_LABEL.get(e.status, e.status),
+            e.requester.display_name if e.requester else "",
+            e.approver.display_name if e.approver else "",
+            e.approver_notes or "",
+            str(e.expiry_date) if e.expiry_date else "",
+            e.created_at.strftime("%Y-%m-%d") if e.created_at else "",
+        ], row=5 + i, alt=bool(i % 2), fill_override=fill)
+
+    AuditService(db).log("EXPORT_GENERATED", actor=current_user, resource_type="Export",
+                         resource_name="exceptions_register", request=request)
+    return _xlsx_response(wb, f"exceptions_register_{datetime.utcnow().strftime('%Y%m%d')}.xlsx")
+
+
+# ── Treatment Plans export ─────────────────────────────────────────────────
+
+PLAN_STATUS_FILL = {
+    "completed":   GREEN_FILL,
+    "in_progress": PatternFill("solid", fgColor="DBEAFE"),
+    "on_hold":     YELLOW_FILL,
+    "cancelled":   PatternFill("solid", fgColor="E5E7EB"),
+}
+
+MILESTONE_STATUS_FILL = {
+    "completed": GREEN_FILL,
+    "overdue":   RED_FILL,
+    "in_progress": PatternFill("solid", fgColor="DBEAFE"),
+}
+
+@router.get("/treatment-plans")
+def export_treatment_plans(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission("reports:export")),
+):
+    plans = (
+        db.query(TreatmentPlan)
+        .order_by(TreatmentPlan.created_at.desc())
+        .all()
+    )
+    generated = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
+
+    wb = Workbook()
+
+    # Sheet 1 — Treatment Plans
+    ws = wb.active
+    ws.title = "Treatment Plans"
+    ws.freeze_panes = "A4"
+    _title_block(ws, "Treatment Plans", f"Exported {generated}  |  {len(plans)} plans")
+
+    cols = [
+        ("Risk", 36), ("Strategy", 14), ("Status", 16),
+        ("Owner", 22), ("Target Date", 14), ("Description", 50),
+        ("Milestones", 10), ("Complete", 10),
+    ]
+    _header_row(ws, cols, row=3)
+
+    for i, p in enumerate(plans):
+        total_ms = len(p.milestones)
+        done_ms  = sum(1 for m in p.milestones if m.status == "completed")
+        fill = PLAN_STATUS_FILL.get(p.status)
+        _body_row(ws, [
+            p.risk.name if p.risk else "",
+            (p.strategy or "").capitalize(),
+            (p.status or "").replace("_", " ").title(),
+            p.owner.display_name if p.owner else "",
+            str(p.target_date) if p.target_date else "",
+            p.description or "",
+            total_ms,
+            done_ms,
+        ], row=4 + i, alt=bool(i % 2), fill_override=fill)
+
+    # Sheet 2 — Milestones
+    ws2 = wb.create_sheet("Milestones")
+    ws2.freeze_panes = "A4"
+    _title_block(ws2, "Treatment Plan Milestones", f"Exported {generated}")
+
+    cols2 = [
+        ("Risk", 30), ("Milestone", 38), ("Assigned To", 22),
+        ("Due Date", 14), ("Status", 16),
+    ]
+    _header_row(ws2, cols2, row=3)
+
+    row = 4
+    for p in plans:
+        for m in p.milestones:
+            fill = MILESTONE_STATUS_FILL.get(m.status)
+            _body_row(ws2, [
+                p.risk.name if p.risk else "",
+                m.title,
+                m.assigned_to.display_name if m.assigned_to else "",
+                str(m.due_date) if m.due_date else "",
+                (m.status or "").replace("_", " ").title(),
+            ], row=row, alt=bool((row - 4) % 2), fill_override=fill)
+            row += 1
+
+    if row == 4:
+        ws2.cell(row=4, column=1, value="No milestones recorded.").font = Font(
+            name="Calibri", italic=True, color="9CA3AF", size=10)
+
+    AuditService(db).log("EXPORT_GENERATED", actor=current_user, resource_type="Export",
+                         resource_name="treatment_plans", request=request)
+    return _xlsx_response(wb, f"treatment_plans_{datetime.utcnow().strftime('%Y%m%d')}.xlsx")
+
+
+# ── Risk Aging export ──────────────────────────────────────────────────────
+
+def _age_bucket(days: int) -> str:
+    if days <= 30:   return "0–30 days"
+    if days <= 60:   return "31–60 days"
+    if days <= 90:   return "61–90 days"
+    if days <= 180:  return "91–180 days"
+    if days <= 365:  return "181–365 days"
+    return "365+ days"
+
+AGE_FILLS = [
+    GREEN_FILL,
+    PatternFill("solid", fgColor="D1FAE5"),   # light green  31-60
+    YELLOW_FILL,                               # yellow       61-90
+    ORANGE_FILL,                               # orange       91-180
+    RED_FILL,                                  # red          181-365
+    PatternFill("solid", fgColor="7F1D1D"),   # dark red     365+  (white text below)
+]
+AGE_BUCKET_LABELS = ["0–30 days", "31–60 days", "61–90 days", "91–180 days", "181–365 days", "365+ days"]
+
+def _age_fill(days: int):
+    if days <= 30:   return AGE_FILLS[0]
+    if days <= 60:   return AGE_FILLS[1]
+    if days <= 90:   return AGE_FILLS[2]
+    if days <= 180:  return AGE_FILLS[3]
+    if days <= 365:  return AGE_FILLS[4]
+    return AGE_FILLS[5]
+
+
+@router.get("/risk-aging")
+def export_risk_aging(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission("reports:export")),
+):
+    risks = db.query(Risk).order_by(Risk.created_at).all()
+    today = _date.today()
+    generated = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
+
+    wb = Workbook()
+
+    # Sheet 1 — Risk Aging Detail
+    ws = wb.active
+    ws.title = "Risk Aging"
+    ws.freeze_panes = "A5"
+    _title_block(ws, "Risk Aging Report",
+                 f"Exported {generated}  |  {len(risks)} risks  |  As-of {today}")
+
+    cols = [
+        ("ID", 6), ("Risk Name", 36), ("Asset", 22), ("Threat", 24),
+        ("Inherent Score", 14), ("Residual Score", 14), ("Rating", 12),
+        ("Treatment", 14), ("Status", 14), ("Owner", 20),
+        ("Created", 14), ("Days Open", 10), ("Age Bucket", 16),
+    ]
+    _header_row(ws, cols, row=4)
+
+    def rating(score):
+        if score >= 20: return "Critical"
+        if score >= 15: return "High"
+        if score >= 9:  return "Medium"
+        return "Low"
+
+    for i, r in enumerate(risks):
+        days = (today - r.created_at.date()).days if r.created_at else 0
+        inh  = r.likelihood * r.impact
+        res  = (r.residual_likelihood or r.likelihood) * (r.residual_impact or r.impact)
+        fill = _age_fill(days)
+        row_data = [
+            r.id, r.name,
+            r.asset.name  if r.asset  else "",
+            r.threat.name if r.threat else "",
+            inh, res,
+            rating(inh),
+            (r.treatment or "").capitalize(),
+            r.status.capitalize(),
+            r.owner or "",
+            r.created_at.strftime("%Y-%m-%d") if r.created_at else "",
+            days,
+            _age_bucket(days),
+        ]
+        _body_row(ws, row_data, row=5 + i, alt=bool(i % 2), fill_override=fill)
+        # Bold white text for 365+ rows
+        if days > 365:
+            for col in range(1, len(cols) + 1):
+                ws.cell(row=5 + i, column=col).font = Font(name="Calibri", size=10, color="FFFFFF")
+
+    # Sheet 2 — Aging Summary
+    ws2 = wb.create_sheet("Aging Summary")
+    ws2.column_dimensions["A"].width = 18
+    ws2.column_dimensions["B"].width = 12
+    ws2.column_dimensions["C"].width = 14
+    _title_block(ws2, "Risk Aging Summary", f"As-of {today}")
+
+    cols2 = [("Age Bucket", 18), ("Risk Count", 12), ("% of Total", 14)]
+    _header_row(ws2, cols2, row=3)
+
+    bucket_counts = {b: 0 for b in AGE_BUCKET_LABELS}
+    for r in risks:
+        days = (today - r.created_at.date()).days if r.created_at else 0
+        bucket_counts[_age_bucket(days)] += 1
+
+    for j, label in enumerate(AGE_BUCKET_LABELS):
+        count = bucket_counts[label]
+        pct   = f"{round(count / len(risks) * 100)}%" if risks else "0%"
+        fill  = AGE_FILLS[j]
+        _body_row(ws2, [label, count, pct], row=4 + j, alt=False, fill_override=fill)
+        if j == 5 and count > 0:  # 365+ dark red — white font
+            for col in range(1, 4):
+                ws2.cell(row=4 + j, column=col).font = Font(name="Calibri", size=10, color="FFFFFF")
+
+    AuditService(db).log("EXPORT_GENERATED", actor=current_user, resource_type="Export",
+                         resource_name="risk_aging", request=request)
+    return _xlsx_response(wb, f"risk_aging_{datetime.utcnow().strftime('%Y%m%d')}.xlsx")

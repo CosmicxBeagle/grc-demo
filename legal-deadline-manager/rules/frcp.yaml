@@ -1,0 +1,216 @@
+# ============================================================
+# FRCP Baseline Deadline Rules
+# Federal Rules of Civil Procedure
+# Last reviewed: 2025 (2009 amendments in effect — uniform calendar day counting)
+#
+# Schema:
+#   key:           Unique identifier for this rule
+#   label:         Human-readable deadline name
+#   description:   Full description and citation
+#   trigger_key:   Which trigger date this rule calculates FROM
+#   offset_days:   Number of calendar days to add/subtract (negative = before)
+#   direction:     "before" (deadline is N days BEFORE trigger) | "after" (N days AFTER)
+#   roll_forward:  true = roll deadline forward past weekends/holidays (Rule 6(a)(1))
+#   holiday_set:   "federal" | "oklahoma_federal" (for state court filings)
+#   is_critical:   true = highlight on attorney sheet
+#   display_order: Sort order on attorney sheet (lower = first)
+#   notes:         Implementation notes / exceptions
+# ============================================================
+
+jurisdiction: frcp
+name: Federal Rules of Civil Procedure
+holiday_set: federal   # Default for all FRCP rules
+
+rules:
+
+  # ── Rule 12 — Responsive Pleadings ────────────────────────────────────
+
+  - key: frcp_12a_answer
+    label: Answer to Complaint Due (Defendant)
+    description: >
+      Under FRCP Rule 12(a)(1)(A), a defendant must serve an answer within 21 days
+      after being served with the summons and complaint.
+    trigger_key: service_of_complaint
+    offset_days: 21
+    direction: after
+    roll_forward: true
+    is_critical: true
+    display_order: 10
+    citation: "Fed. R. Civ. P. 12(a)(1)(A)"
+
+  - key: frcp_12a_answer_us_govt
+    label: Answer to Complaint Due (U.S. Government)
+    description: >
+      Under FRCP Rule 12(a)(2), the United States, its agencies, or officers sued
+      in an official capacity have 60 days to answer after service.
+    trigger_key: service_of_complaint
+    offset_days: 60
+    direction: after
+    roll_forward: true
+    is_critical: false
+    display_order: 11
+    citation: "Fed. R. Civ. P. 12(a)(2)"
+
+  # ── Rule 26(f) — Parties' Planning Conference ─────────────────────────
+
+  - key: frcp_26f_conference
+    label: Rule 26(f) Conference Must Occur
+    description: >
+      Under FRCP Rule 26(f), the parties must confer as soon as practicable —
+      and at least 21 days before a scheduling conference is to be held or a
+      scheduling order is due under Rule 16(b).
+    trigger_key: scheduling_conference_date
+    offset_days: 21
+    direction: before
+    roll_forward: false   # This is a "no later than" deadline — do not roll forward
+    is_critical: true
+    display_order: 20
+    citation: "Fed. R. Civ. P. 26(f)"
+    notes: >
+      Parties should hold this conference well before the 21-day minimum.
+      Failure to confer can result in sanctions.
+
+  - key: frcp_26f_discovery_plan
+    label: Rule 26(f) Discovery Plan — Submit to Court
+    description: >
+      Under FRCP Rule 26(f)(2), within 14 days after the Rule 26(f) conference,
+      the parties must submit a written report outlining their discovery plan.
+    trigger_key: rule_26f_conference_date
+    offset_days: 14
+    direction: after
+    roll_forward: true
+    is_critical: false
+    display_order: 21
+    citation: "Fed. R. Civ. P. 26(f)(2)"
+
+  # ── Rule 26(a)(1) — Initial Disclosures ───────────────────────────────
+
+  - key: frcp_26a1_initial_disclosures
+    label: Initial Disclosures Due (Rule 26(a)(1))
+    description: >
+      Under FRCP Rule 26(a)(1)(C), initial disclosures must be made at or within
+      14 days after the parties' Rule 26(f) conference, unless a different time is
+      set by stipulation or court order.
+    trigger_key: rule_26f_conference_date
+    offset_days: 14
+    direction: after
+    roll_forward: true
+    is_critical: true
+    display_order: 30
+    citation: "Fed. R. Civ. P. 26(a)(1)(C)"
+    notes: >
+      Scheduling order will usually set a specific date. If it does, use that date
+      instead of this calculated date and flag any conflict.
+
+  # ── Rule 26(a)(2) — Expert Disclosures ────────────────────────────────
+
+  - key: frcp_26a2_plaintiff_experts
+    label: Plaintiff Expert Disclosures Due (Rule 26(a)(2))
+    description: >
+      Under FRCP Rule 26(a)(2)(D), absent court order, expert disclosures must be
+      made at least 90 days before the trial date or the date the case is to be
+      ready for trial.
+    trigger_key: trial_date
+    offset_days: 90
+    direction: before
+    roll_forward: false
+    is_critical: true
+    display_order: 40
+    citation: "Fed. R. Civ. P. 26(a)(2)(D)"
+    notes: >
+      The scheduling order ALWAYS overrides this default. In N.D. Okla., the
+      scheduling order typically sets plaintiff experts 180-240 days before trial.
+      Use scheduling_order date if available; only fall back to this rule if absent.
+
+  - key: frcp_26a2_defendant_experts
+    label: Defendant Expert Disclosures Due (Rule 26(a)(2))
+    description: >
+      Under FRCP Rule 26(a)(2)(D), defendant expert disclosures are due at least
+      90 days before trial (or 30 days after plaintiff's expert disclosures if
+      intended solely as rebuttal). Scheduling orders typically set a specific date.
+    trigger_key: trial_date
+    offset_days: 90
+    direction: before
+    roll_forward: false
+    is_critical: true
+    display_order: 41
+    citation: "Fed. R. Civ. P. 26(a)(2)(D)"
+
+  - key: frcp_26a2_rebuttal_experts
+    label: Rebuttal Expert Disclosures Due (Rule 26(a)(2))
+    description: >
+      Under FRCP Rule 26(a)(2)(D)(ii), rebuttal expert disclosures are due within
+      30 days after the other party's expert disclosure deadline.
+    trigger_key: defendant_expert_disclosure_date
+    offset_days: 30
+    direction: after
+    roll_forward: true
+    is_critical: false
+    display_order: 42
+    citation: "Fed. R. Civ. P. 26(a)(2)(D)(ii)"
+
+  # ── Rule 26(a)(3) — Pretrial Disclosures ──────────────────────────────
+
+  - key: frcp_26a3_pretrial_disclosures
+    label: Pretrial Disclosures Due (Witness/Exhibit Lists)
+    description: >
+      Under FRCP Rule 26(a)(3)(B), pretrial disclosures (witness lists, deposition
+      designations, exhibit lists) must be made at least 30 days before trial.
+    trigger_key: trial_date
+    offset_days: 30
+    direction: before
+    roll_forward: false
+    is_critical: true
+    display_order: 50
+    citation: "Fed. R. Civ. P. 26(a)(3)(B)"
+
+  - key: frcp_26a3_objections_to_pretrial
+    label: Objections to Pretrial Disclosures Due
+    description: >
+      Under FRCP Rule 26(a)(3)(B), objections to pretrial disclosures must be
+      served and filed within 14 days after service of the pretrial disclosures,
+      unless the court sets a different time.
+    trigger_key: pretrial_disclosure_date
+    offset_days: 14
+    direction: after
+    roll_forward: true
+    is_critical: false
+    display_order: 51
+    citation: "Fed. R. Civ. P. 26(a)(3)(B)"
+
+  # ── Rule 56 — Summary Judgment ─────────────────────────────────────────
+
+  - key: frcp_56_sj_motion_floor
+    label: Summary Judgment Motion — Earliest Date Permitted
+    description: >
+      Under FRCP Rule 56(b), a party may file a motion for summary judgment at any
+      time until 30 days after the close of all discovery, unless the court sets a
+      different time. A court order may set an earlier deadline in the scheduling order.
+    trigger_key: discovery_cutoff_date
+    offset_days: 30
+    direction: after
+    roll_forward: true
+    is_critical: true
+    display_order: 60
+    citation: "Fed. R. Civ. P. 56(b)"
+    notes: >
+      The scheduling order will always set a specific SJ deadline. Use that date.
+      This rule provides the default maximum if the scheduling order is silent.
+
+  # ── Rule 16(b) — Scheduling Order Deadline ────────────────────────────
+
+  - key: frcp_16b_scheduling_order_deadline
+    label: Scheduling Order Must Be Issued By Court
+    description: >
+      Under FRCP Rule 16(b)(2), the court must issue the scheduling order as soon
+      as practicable, but in any event within the earlier of 90 days after any
+      defendant has been served with the complaint, or 60 days after any defendant
+      has appeared.
+    trigger_key: service_of_complaint
+    offset_days: 90
+    direction: after
+    roll_forward: true
+    is_critical: false
+    display_order: 5
+    citation: "Fed. R. Civ. P. 16(b)(2)"
+    notes: Court-side deadline — for tracking purposes only.

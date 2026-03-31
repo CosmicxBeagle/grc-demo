@@ -1,7 +1,17 @@
+import json
+import logging
 import uuid
+from datetime import datetime as _dt
 from pathlib import Path
-from fastapi import UploadFile, HTTPException
+
+from fastapi import Request, UploadFile, HTTPException
 from sqlalchemy.orm import Session
+
+# ── Audit logger ───────────────────────────────────────────────────────────────
+# Each audit event emits one structured JSON line here.
+# Azure Container Apps ships stdout → Azure Monitor automatically.
+# Forward to Sentinel or any SIEM with a single diagnostic setting toggle.
+_audit_logger = logging.getLogger("audit")
 
 from app.config import settings
 from app import storage as evidence_storage
@@ -298,6 +308,112 @@ class EvidenceService:
         return data, content_type, ev.original_filename
 
 
+# ── Audit Service ─────────────────────────────────────────────────────────────
+
+class AuditService:
+    """
+    Dual-write audit trail:
+      1. Writes an AuditLog row inside the current DB transaction.
+         If the outer transaction rolls back (e.g. validation error),
+         the audit entry rolls back too — no phantom log entries.
+      2. Always emits a structured JSON line via the 'audit' logger
+         regardless of DB outcome, so SIEM receives every attempt.
+
+    Usage (in a router):
+        before = _snap(existing_orm_obj)         # capture state BEFORE
+        result = service.update(...)             # do the work
+        AuditService(db).log(
+            "RISK_UPDATED", actor=current_user,
+            resource_type="Risk", resource_id=result.id,
+            resource_name=result.name,
+            before=before, after=_snap(result),
+            request=request,
+        )
+    """
+
+    def __init__(self, db: Session):
+        self.db = db
+
+    # ── private helpers ───────────────────────────────────────────────────
+
+    @staticmethod
+    def _diff(before: dict | None, after: dict | None) -> dict:
+        if not before or not after:
+            return {}
+        all_keys = set(before) | set(after)
+        return {
+            k: {"from": before.get(k), "to": after.get(k)}
+            for k in all_keys
+            if before.get(k) != after.get(k)
+        }
+
+    # ── public API ────────────────────────────────────────────────────────
+
+    def log(
+        self,
+        action: str,
+        *,
+        actor: "User | None" = None,
+        resource_type: str | None = None,
+        resource_id: int | None = None,
+        resource_name: str | None = None,
+        before: dict | None = None,
+        after: dict | None = None,
+        request: "Request | None" = None,
+        extra: dict | None = None,
+    ) -> None:
+        from app.models.models import AuditLog
+
+        changes = self._diff(before, after)
+        request_id = str(uuid.uuid4())
+
+        ip = ua = None
+        if request:
+            ip = request.client.host if request.client else None
+            ua = (request.headers.get("user-agent") or "")[:500]
+
+        # 1. Write to DB (same transaction as the calling router)
+        try:
+            entry = AuditLog(
+                timestamp=_dt.utcnow(),
+                actor_id=actor.id if actor else None,
+                actor_email=getattr(actor, "email", None) if actor else None,
+                actor_role=getattr(actor, "role", None) if actor else None,
+                action=action,
+                resource_type=resource_type,
+                resource_id=resource_id,
+                resource_name=resource_name,
+                before_state=json.dumps(before, default=str) if before else None,
+                after_state=json.dumps(after, default=str) if after else None,
+                changes=json.dumps(changes, default=str) if changes else None,
+                ip_address=ip,
+                user_agent=ua,
+                request_id=request_id,
+            )
+            self.db.add(entry)
+            self.db.commit()
+        except Exception:
+            # Never let audit failure break the main operation
+            _audit_logger.exception("Failed to write audit log to DB for action=%s", action)
+
+        # 2. Emit structured JSON to stdout → Azure Monitor / SIEM
+        _audit_logger.info(json.dumps({
+            "event":      "audit",
+            "timestamp":  _dt.utcnow().isoformat() + "Z",
+            "action":     action,
+            "actor":      {
+                "id":    actor.id    if actor else None,
+                "email": getattr(actor, "email", None) if actor else None,
+                "role":  getattr(actor, "role",  None) if actor else None,
+            },
+            "resource":   {"type": resource_type, "id": resource_id, "name": resource_name},
+            "changes":    changes,
+            "ip":         ip,
+            "request_id": request_id,
+            **(extra or {}),
+        }, default=str))
+
+
 # ── Dashboard Service ──────────────────────────────────────────────────────
 
 class DashboardService:
@@ -429,6 +545,12 @@ class DeficiencyService:
     def __init__(self, db: Session):
         from app.repositories.repositories import DeficiencyRepository
         self.repo = DeficiencyRepository(db)
+
+    def get(self, deficiency_id: int):
+        d = self.repo.get_by_id(deficiency_id)
+        if not d:
+            raise HTTPException(status_code=404, detail="Deficiency not found")
+        return d
 
     def list_all(self, status: str = None):
         return self.repo.get_all(status)

@@ -1,0 +1,69 @@
+# Legal Deadline Manager — Python Dependencies
+# Install with: pip install -r requirements.txt
+
+# ── Web Framework ──────────────────────────────────────────────────────────
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+jinja2==3.1.4
+python-multipart==0.0.12       # file uploads
+aiofiles==24.1.0
+
+# ── Database ───────────────────────────────────────────────────────────────
+sqlalchemy==2.0.35
+alembic==1.13.3
+# For SQLite (default): built into Python
+# For PostgreSQL (optional): uncomment below
+# psycopg2-binary==2.9.9
+
+# ── Data Validation ────────────────────────────────────────────────────────
+pydantic==2.9.2
+pydantic-settings==2.5.2
+
+# ── Microsoft Graph / Authentication ───────────────────────────────────────
+msal==1.31.0
+msgraph-sdk==1.9.0
+azure-identity==1.18.0
+# pywin32 for DPAPI token cache encryption (Windows only)
+pywin32==306; sys_platform == "win32"
+
+# ── Document Parsing ───────────────────────────────────────────────────────
+pdfplumber==0.11.4             # PDF text extraction (primary)
+pymupdf==1.24.10               # PyMuPDF — fast PDF/image rendering
+python-docx==1.1.2             # DOCX parsing
+pytesseract==0.3.13            # OCR fallback (requires Tesseract binary)
+Pillow==10.4.0                 # Image processing for OCR
+
+# ── Date / Calendar Utilities ──────────────────────────────────────────────
+holidays==0.56                 # Federal + state holidays (FRCP Rule 6)
+python-dateutil==2.9.0         # Flexible date parsing
+
+# ── PDF Generation (Attorney Sheet) ────────────────────────────────────────
+weasyprint==62.3               # HTML→PDF generation
+# Alternatively: reportlab==4.2.2
+
+# ── Scheduling / Background Jobs ──────────────────────────────────────────
+apscheduler==3.10.4
+
+# ── Email ──────────────────────────────────────────────────────────────────
+# Using Microsoft Graph API for email (same token as calendar/tasks)
+# No additional SMTP library needed
+
+# ── Encryption ─────────────────────────────────────────────────────────────
+cryptography==43.0.1           # Fernet symmetric encryption for DB fields
+
+# ── Config / Environment ──────────────────────────────────────────────────
+python-dotenv==1.0.1
+
+# ── YAML (rule files) ─────────────────────────────────────────────────────
+pyyaml==6.0.2
+
+# ── Utilities ─────────────────────────────────────────────────────────────
+httpx==0.27.2                  # Async HTTP client
+tenacity==9.0.0                # Retry logic (Graph API throttle handling)
+loguru==0.7.2                  # Structured logging
+rich==13.9.2                   # Pretty CLI output
+
+# ── Dev / Testing ─────────────────────────────────────────────────────────
+pytest==8.3.3
+pytest-asyncio==0.24.0
+httpx==0.27.2                  # Also used as async test client

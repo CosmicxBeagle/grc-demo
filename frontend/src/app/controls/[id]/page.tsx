@@ -83,6 +83,8 @@ export default function ControlDetailPage() {
   }, [id]);
 
   const save = async () => {
+    if (!form.control_id.trim()) { alert("Control ID is required."); return; }
+    if (!form.title.trim())      { alert("Title is required."); return; }
     const validMappings = mappings.filter(m => m.framework && m.framework_ref);
     if (id === "new") {
       const r = await controlsApi.create({ ...form, mappings: validMappings });

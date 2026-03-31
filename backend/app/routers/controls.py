@@ -1,12 +1,25 @@
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.orm import Session
 from app.db.database import get_db
 from app.schemas.schemas import ControlCreate, ControlUpdate, ControlOut, ControlCycleHistoryOut
-from app.services.services import ControlService
+from app.services.services import ControlService, AuditService
 from app.auth.local_auth import get_current_user, require_role
 from app.models.models import User
 
 router = APIRouter(prefix="/controls", tags=["controls"])
+
+
+def _snap(c) -> dict:
+    return {
+        "control_id":     c.control_id,
+        "title":          c.title,
+        "control_type":   c.control_type,
+        "frequency":      c.frequency,
+        "owner":          c.owner,
+        "status":         c.status,
+        "sox_in_scope":   c.sox_in_scope,
+        "sox_itgc_domain":c.sox_itgc_domain,
+    }
 
 
 @router.get("", response_model=list[ControlOut])
@@ -70,26 +83,55 @@ def get_control_cycles(
 @router.post("", response_model=ControlOut, status_code=201)
 def create_control(
     data: ControlCreate,
+    request: Request,
     db: Session = Depends(get_db),
-    _: User = Depends(require_role("admin")),
+    current_user: User = Depends(require_role("admin")),
 ):
-    return ControlService(db).create_control(data)
+    result = ControlService(db).create_control(data)
+    AuditService(db).log(
+        "CONTROL_CREATED", actor=current_user,
+        resource_type="Control", resource_id=result.id,
+        resource_name=f"{result.control_id} — {result.title}",
+        after=_snap(result), request=request,
+    )
+    return result
 
 
 @router.patch("/{control_id}", response_model=ControlOut)
 def update_control(
     control_id: int,
     data: ControlUpdate,
+    request: Request,
     db: Session = Depends(get_db),
-    _: User = Depends(require_role("admin")),
+    current_user: User = Depends(require_role("admin")),
 ):
-    return ControlService(db).update_control(control_id, data)
+    svc = ControlService(db)
+    before_obj = svc.get_control(control_id)
+    before = _snap(before_obj)
+    result = svc.update_control(control_id, data)
+    AuditService(db).log(
+        "CONTROL_UPDATED", actor=current_user,
+        resource_type="Control", resource_id=result.id,
+        resource_name=f"{result.control_id} — {result.title}",
+        before=before, after=_snap(result), request=request,
+    )
+    return result
 
 
 @router.delete("/{control_id}", status_code=204)
 def delete_control(
     control_id: int,
+    request: Request,
     db: Session = Depends(get_db),
-    _: User = Depends(require_role("admin")),
+    current_user: User = Depends(require_role("admin")),
 ):
-    ControlService(db).delete_control(control_id)
+    svc = ControlService(db)
+    obj = svc.get_control(control_id)
+    before = _snap(obj)
+    name = f"{obj.control_id} — {obj.title}"
+    svc.delete_control(control_id)
+    AuditService(db).log(
+        "CONTROL_DELETED", actor=current_user,
+        resource_type="Control", resource_id=control_id,
+        resource_name=name, before=before, request=request,
+    )

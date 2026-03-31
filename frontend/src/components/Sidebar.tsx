@@ -18,6 +18,7 @@ import {
   ShieldExclamationIcon,
   Cog6ToothIcon,
   CalendarDaysIcon,
+  ClipboardDocumentCheckIcon,
 } from "@heroicons/react/24/outline";
 
 const nav = [
@@ -73,6 +74,29 @@ export default function Sidebar() {
             {label}
           </Link>
         ))}
+
+        {/* Audit Trail — admin and grc_manager */}
+        {(user?.role === "admin" || user?.role === "grc_manager") && (
+          <>
+            <div className="pt-4 pb-1">
+              <p className="px-3 text-xs font-semibold text-blue-400 uppercase tracking-wider">
+                Compliance
+              </p>
+            </div>
+            <Link
+              href="/audit-logs"
+              className={clsx(
+                "flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors",
+                pathname === "/audit-logs"
+                  ? "bg-blue-700 text-white"
+                  : "text-blue-200 hover:bg-blue-700 hover:text-white"
+              )}
+            >
+              <ClipboardDocumentCheckIcon className="w-5 h-5 flex-shrink-0" />
+              Audit Trail
+            </Link>
+          </>
+        )}
 
         {/* Admin Settings section */}
         {user?.role === "admin" && (

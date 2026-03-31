@@ -432,3 +432,17 @@ export interface RiskReviewUpdate {
   submitted_at:         string;
   submitter?:           User;
 }
+
+export interface AuditLogEntry {
+  id:            number;
+  timestamp:     string;
+  action:        string;
+  actor_email:   string | null;
+  actor_role:    string | null;
+  resource_type: string | null;
+  resource_id:   number | null;
+  resource_name: string | null;
+  changes:       Record<string, { from: unknown; to: unknown }> | null;
+  ip_address:    string | null;
+  request_id:    string | null;
+}

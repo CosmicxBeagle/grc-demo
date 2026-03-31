@@ -1,9 +1,9 @@
-from fastapi import APIRouter, Depends, UploadFile, File, Form
+from fastapi import APIRouter, Depends, UploadFile, File, Form, Request
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
 from app.db.database import get_db
 from app.schemas.schemas import EvidenceOut
-from app.services.services import EvidenceService
+from app.services.services import EvidenceService, AuditService
 from app.auth.permissions import require_permission
 from app.models.models import User
 
@@ -15,15 +15,25 @@ async def upload_evidence(
     assignment_id: int = Form(...),
     description: str = Form(""),
     file: UploadFile = File(...),
+    request: Request = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission("evidence:write")),
 ):
-    return await EvidenceService(db).upload_evidence(
+    result = await EvidenceService(db).upload_evidence(
         assignment_id=assignment_id,
         file=file,
         description=description,
         uploader_id=current_user.id,
     )
+    AuditService(db).log(
+        "EVIDENCE_UPLOADED", actor=current_user,
+        resource_type="Evidence", resource_id=result.id,
+        resource_name=result.original_filename,
+        after={"assignment_id": assignment_id, "filename": result.original_filename,
+               "file_size": result.file_size},
+        request=request,
+    )
+    return result
 
 
 @router.get("/{evidence_id}/download")
@@ -44,7 +54,16 @@ def download_evidence(
 @router.delete("/{evidence_id}", status_code=204)
 def delete_evidence(
     evidence_id: int,
+    request: Request,
     db: Session = Depends(get_db),
-    _: User = Depends(require_permission("evidence:write")),
+    current_user: User = Depends(require_permission("evidence:write")),
 ):
-    EvidenceService(db).delete_evidence(evidence_id)
+    svc = EvidenceService(db)
+    ev = svc.evidence_repo.get_by_id(evidence_id)
+    name = ev.original_filename if ev else str(evidence_id)
+    svc.delete_evidence(evidence_id)
+    AuditService(db).log(
+        "EVIDENCE_DELETED", actor=current_user,
+        resource_type="Evidence", resource_id=evidence_id,
+        resource_name=name, request=request,
+    )

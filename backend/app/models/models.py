@@ -453,3 +453,45 @@ class RiskReviewUpdate(Base):
 
     request   = relationship("RiskReviewRequest", back_populates="updates")
     submitter = relationship("User", foreign_keys=[submitted_by])
+
+
+class AuditLog(Base):
+    """
+    Append-only audit trail.  Never updated or deleted after creation.
+
+    Every significant write operation (create / update / delete / auth /
+    export) writes one row here AND emits a structured JSON line to the
+    'audit' Python logger so Azure Monitor / any SIEM can pick it up via
+    the Container Apps log drain without additional infrastructure.
+
+    Columns
+    -------
+    action        : verb in SCREAMING_SNAKE format  e.g. RISK_UPDATED
+    resource_type : entity class name               e.g. Risk
+    resource_id   : primary key of the affected row
+    resource_name : human-readable name for display
+    before_state  : JSON snapshot before the change (null for creates)
+    after_state   : JSON snapshot after  the change (null for deletes)
+    changes       : JSON field-level diff  {"field": {"from": x, "to": y}}
+    actor_*       : denormalised — user record may be deleted later
+    request_id    : UUID per HTTP request for cross-row correlation
+    """
+    __tablename__ = "audit_logs"
+
+    id            = Column(Integer, primary_key=True, index=True)
+    timestamp     = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    actor_id      = Column(Integer, ForeignKey("users.id"), nullable=True)
+    actor_email   = Column(String(255))
+    actor_role    = Column(String(50))
+    action        = Column(String(100), nullable=False, index=True)
+    resource_type = Column(String(50), index=True)
+    resource_id   = Column(Integer, index=True)
+    resource_name = Column(String(500))
+    before_state  = Column(Text)
+    after_state   = Column(Text)
+    changes       = Column(Text)
+    ip_address    = Column(String(45))
+    user_agent    = Column(String(500))
+    request_id    = Column(String(36))
+
+    actor = relationship("User", foreign_keys=[actor_id])

@@ -3,7 +3,7 @@ import { getToken, clearSession } from "./auth";
 import type {
   User, Control, TestCycle, TestCycleSummary,
   TestAssignment, DashboardStats, ControlCycleHistory, Deficiency,
-  Asset, Threat, Risk, TreatmentPlan, TreatmentMilestone,
+  Asset, Threat, Risk, TreatmentPlan, TreatmentMilestone, AuditLogEntry,
 } from "@/types";
 
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? "/api";
@@ -272,4 +272,9 @@ export const treatmentPlansApi = {
     client.put<TreatmentMilestone>(`/treatment-plans/milestones/${milestoneId}`, data),
   deleteMilestone: (milestoneId: number) =>
     client.delete(`/treatment-plans/milestones/${milestoneId}`),
+};
+
+export const auditApi = {
+  list: (params?: { resource_type?: string; action?: string; actor_email?: string; resource_id?: number; limit?: number; offset?: number }) =>
+    client.get<{ total: number; items: AuditLogEntry[] }>("/audit-logs", { params }),
 };

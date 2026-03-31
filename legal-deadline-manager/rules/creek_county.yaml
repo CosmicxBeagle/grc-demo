@@ -1,0 +1,41 @@
+# Creek County District Court Local Rules
+# Oklahoma's 24th Judicial District (Sapulpa, OK)
+# Follows statewide Oklahoma rules — limited local supplementation
+jurisdiction: creek_county
+name: Creek County District Court
+court_name: "District Court of Creek County, Oklahoma"
+holiday_set: oklahoma_state
+
+rules:
+  - key: creek_answer
+    label: Answer to Petition Due (Creek County)
+    description: Under 12 O.S. § 2012(A), defendant must answer within 20 days after service.
+    trigger_key: service_of_petition
+    offset_days: 20
+    direction: after
+    roll_forward: true
+    is_critical: true
+    display_order: 10
+    citation: "12 O.S. § 2012(A)"
+
+  - key: creek_response_motion
+    label: Response to Motion Due (Creek County)
+    description: Creek County typically follows 15-day response period. Confirm with judge's standing orders.
+    trigger_key: motion_filed_date
+    offset_days: 15
+    direction: after
+    roll_forward: true
+    is_critical: false
+    display_order: 20
+    citation: "Creek County Dist. Ct. Local Rules"
+
+  - key: creek_discovery_response
+    label: Discovery Responses Due (Creek County)
+    description: Under 12 O.S. § 3233, discovery responses due within 30 days of service.
+    trigger_key: discovery_served_date
+    offset_days: 30
+    direction: after
+    roll_forward: true
+    is_critical: true
+    display_order: 30
+    citation: "12 O.S. § 3233"

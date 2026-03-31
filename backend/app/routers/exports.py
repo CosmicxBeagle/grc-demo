@@ -3,7 +3,7 @@ Export endpoints — returns styled .xlsx workbooks for auditors.
 """
 import io
 from datetime import datetime
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from openpyxl import Workbook
@@ -14,6 +14,8 @@ from openpyxl.utils import get_column_letter
 
 from app.db.database import get_db
 from app.auth.permissions import require_permission
+from app.models.models import User
+from app.services.services import AuditService
 from app.repositories.repositories import (
     ControlRepository, DeficiencyRepository,
     RiskRepository, TestCycleRepository, AssignmentRepository,
@@ -107,7 +109,7 @@ def _score_fill(score: int):
 # ── Controls export ────────────────────────────────────────────────────────
 
 @router.get("/controls")
-def export_controls(db: Session = Depends(get_db)):
+def export_controls(request: Request, db: Session = Depends(get_db), current_user: User = Depends(require_permission("reports:export"))):
     controls = ControlRepository(db).get_all()
     wb = Workbook()
 
@@ -163,13 +165,15 @@ def export_controls(db: Session = Depends(get_db)):
             row += 1
             alt = not alt
 
+    AuditService(db).log("EXPORT_GENERATED", actor=current_user, resource_type="Export",
+                         resource_name="control_library", request=request)
     return _xlsx_response(wb, f"control_library_{datetime.utcnow().strftime('%Y%m%d')}.xlsx")
 
 
 # ── Deficiency Register export ─────────────────────────────────────────────
 
 @router.get("/deficiencies")
-def export_deficiencies(db: Session = Depends(get_db)):
+def export_deficiencies(request: Request, db: Session = Depends(get_db), current_user: User = Depends(require_permission("reports:export"))):
     deficiencies = DeficiencyRepository(db).get_all()
     wb = Workbook()
     ws = wb.active
@@ -204,13 +208,15 @@ def export_deficiencies(db: Session = Depends(get_db)):
             d.updated_at.strftime("%Y-%m-%d") if d.updated_at else "",
         ], row=4 + i, alt=bool(i % 2), fill_override=sev_fill)
 
+    AuditService(db).log("EXPORT_GENERATED", actor=current_user, resource_type="Export",
+                         resource_name="deficiency_register", request=request)
     return _xlsx_response(wb, f"deficiency_register_{datetime.utcnow().strftime('%Y%m%d')}.xlsx")
 
 
 # ── Risk Register export ───────────────────────────────────────────────────
 
 @router.get("/risks")
-def export_risks(db: Session = Depends(get_db)):
+def export_risks(request: Request, db: Session = Depends(get_db), current_user: User = Depends(require_permission("reports:export"))):
     risks = RiskRepository(db).get_all()
     wb = Workbook()
     ws = wb.active
@@ -255,13 +261,15 @@ def export_risks(db: Session = Depends(get_db)):
             controls_str,
         ], row=4 + i, alt=bool(i % 2), fill_override=score_fill)
 
+    AuditService(db).log("EXPORT_GENERATED", actor=current_user, resource_type="Export",
+                         resource_name="risk_register", request=request)
     return _xlsx_response(wb, f"risk_register_{datetime.utcnow().strftime('%Y%m%d')}.xlsx")
 
 
 # ── Test Cycle Report export ───────────────────────────────────────────────
 
 @router.get("/test-cycles/{cycle_id}")
-def export_test_cycle(cycle_id: int, db: Session = Depends(get_db)):
+def export_test_cycle(cycle_id: int, request: Request, db: Session = Depends(get_db), current_user: User = Depends(require_permission("reports:export"))):
     cycle = TestCycleRepository(db).get_by_id(cycle_id)
     if not cycle:
         from fastapi import HTTPException
@@ -380,6 +388,8 @@ def export_test_cycle(cycle_id: int, db: Session = Depends(get_db)):
         ws3.cell(row=4, column=1, value="No deficiencies recorded for this cycle.").font = Font(
             name="Calibri", italic=True, color="9CA3AF", size=10)
 
+    AuditService(db).log("EXPORT_GENERATED", actor=current_user, resource_type="Export",
+                         resource_name=f"test_cycle_{cycle_id}", request=request)
     filename = f"test_cycle_{cycle_id}_{cycle.name.replace(' ', '_')[:30]}_{datetime.utcnow().strftime('%Y%m%d')}.xlsx"
     return _xlsx_response(wb, filename)
 
@@ -411,7 +421,7 @@ DOMAIN_FILL = {
 
 
 @router.get("/sox")
-def export_sox(db: Session = Depends(get_db)):
+def export_sox(request: Request, db: Session = Depends(get_db), current_user: User = Depends(require_permission("reports:export"))):
     controls = ControlRepository(db).get_all()
     in_scope = [c for c in controls if c.sox_in_scope]
     generated = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
@@ -516,4 +526,6 @@ def export_sox(db: Session = Depends(get_db)):
             if count:
                 cell.fill = DOMAIN_FILL.get(domain, ALT_FILL)
 
+    AuditService(db).log("EXPORT_GENERATED", actor=current_user, resource_type="Export",
+                         resource_name="sox_itgc_scoping", request=request)
     return _xlsx_response(wb, f"sox_itgc_scoping_{datetime.utcnow().strftime('%Y%m%d')}.xlsx")

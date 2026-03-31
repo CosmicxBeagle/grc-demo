@@ -59,6 +59,8 @@ PERMISSIONS = {
     # Settings
     "settings:read",
     "settings:write",
+    # Audit trail
+    "audit:read",
 }
 
 # ── Role → Permission matrix ──────────────────────────────────────────────────
@@ -80,6 +82,7 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
         "reports:export",
         "users:read",
         "settings:read", "settings:write",
+        "audit:read",
     },
 
     "grc_analyst": {
@@ -95,6 +98,7 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
         "reports:export",
         "users:read",
         "settings:read",
+        "audit:read",
     },
 
     "tester": {

@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<style>
+/* ── Page setup ─────────────────────────────────────── */
+@page {
+  size: letter;
+  margin: 0.55in 0.65in 0.55in 0.65in;
+  @bottom-center {
+    content: "{{ firm_name }} — Daily Work Brief — {{ brief.report_date_str }}  |  Confidential";
+    font-size: 6.5pt; color: #aaa;
+  }
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: 9pt;
+  color: #1c1c1c;
+  line-height: 1.38;
+}
+
+/* ── Header ────────────────────────────────────────── */
+.hdr {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  border-bottom: 2.5pt solid #1a3a5c;
+  padding-bottom: 7pt;
+  margin-bottom: 11pt;
+}
+.hdr-left h1 {
+  font-size: 17pt;
+  font-weight: 800;
+  color: #1a3a5c;
+  letter-spacing: -0.3pt;
+}
+.hdr-left .sub {
+  font-size: 9pt;
+  color: #555;
+  margin-top: 1pt;
+}
+.hdr-right {
+  text-align: right;
+  font-size: 8pt;
+  color: #555;
+  line-height: 1.6;
+}
+.hdr-right .date {
+  font-size: 11.5pt;
+  font-weight: 700;
+  color: #1a3a5c;
+}
+
+/* ── Summary chips ─────────────────────────────────── */
+.chips {
+  display: flex;
+  gap: 7pt;
+  margin-bottom: 12pt;
+}
+.chip {
+  flex: 1;
+  border: 1pt solid #ddd;
+  border-radius: 4pt;
+  padding: 5pt 8pt;
+  text-align: center;
+}
+.chip .n { font-size: 18pt; font-weight: 800; line-height: 1; }
+.chip .l { font-size: 6.5pt; text-transform: uppercase; letter-spacing: 0.4pt; color: #777; margin-top: 1pt; }
+.n-red    { color: #b91c1c; }
+.n-orange { color: #c2610a; }
+.n-blue   { color: #1a3a5c; }
+.n-slate  { color: #475569; }
+.chip-red { border-color: #fca5a5; background: #fff5f5; }
+
+/* ── Section headers ───────────────────────────────── */
+.sec-hdr {
+  font-size: 7pt;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.6pt;
+  padding: 3pt 7pt;
+  margin-bottom: 4pt;
+  border-radius: 2pt;
+  color: #fff;
+}
+.hdr-red    { background: #b91c1c; }
+.hdr-orange { background: #c2610a; }
+.hdr-blue   { background: #1a3a5c; }
+.hdr-teal   { background: #0f766e; }
+.hdr-slate  { background: #475569; }
+.hdr-indigo { background: #3730a3; }
+.hdr-stone  { background: #78716c; }
+
+.section { margin-bottom: 12pt; page-break-inside: avoid; }
+
+/* ── Event rows ────────────────────────────────────── */
+table { width: 100%; border-collapse: collapse; }
+
+thead th {
+  font-size: 7pt;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.3pt;
+  color: #666;
+  background: #f1f5f9;
+  padding: 3pt 5pt;
+  text-align: left;
+  border-bottom: 1pt solid #cbd5e1;
+}
+tbody tr { border-bottom: 0.5pt solid #e2e8f0; }
+tbody tr:last-child { border-bottom: none; }
+tbody tr:nth-child(even) { background: #f8fafc; }
+tbody td { padding: 3.5pt 5pt; vertical-align: top; }
+
+/* Deadline table columns */
+.c-client  { width: 26%; font-weight: 600; }
+.c-task    { width: 51%; }
+.c-date    { width: 13%; text-align: center; font-size: 8.5pt; }
+.c-days    { width: 10%; text-align: center; }
+
+/* Other-events table columns */
+.c-time    { width: 11%; font-size: 8pt; color: #555; }
+.c-what    { width: 55%; }
+.c-where   { width: 24%; font-size: 8pt; color: #666; }
+.c-ddays   { width: 10%; text-align: center; }
+
+/* Badges */
+.badge {
+  display: inline-block;
+  border-radius: 10pt;
+  padding: 1pt 6pt;
+  font-size: 7pt;
+  font-weight: 700;
+  min-width: 28pt;
+  text-align: center;
+}
+.b-today   { background: #b91c1c; color: #fff; }
+.b-soon    { background: #c2610a; color: #fff; }
+.b-30      { background: #e2e8f0; color: #334155; border: 0.5pt solid #cbd5e1; }
+.b-overdue { background: #7f1d1d; color: #fff; }
+.b-other   { background: #e2e8f0; color: #475569; border: 0.5pt solid #cbd5e1; }
+
+.overdue-row td { color: #b91c1c !important; background: #fef2f2 !important; }
+.bold { font-weight: 700; }
+.dimmed { color: #94a3b8; }
+
+/* Day-group sub-header inside 30-day table */
+.day-row td {
+  font-weight: 700;
+  font-size: 8pt;
+  color: #1a3a5c;
+  background: #eff6ff !important;
+  border-top: 1pt solid #bfdbfe;
+  padding: 2.5pt 5pt;
+}
+
+.none-msg {
+  color: #16a34a;
+  font-style: italic;
+  font-size: 8.5pt;
+  padding: 3pt 0 1pt;
+}
+
+/* ── Divider between deadline / other sections ──── */
+.divider {
+  border: none;
+  border-top: 1.5pt dashed #cbd5e1;
+  margin: 13pt 0 11pt;
+}
+</style>
+</head>
+<body>
+
+<!-- ══ HEADER ════════════════════════════════════════════════ -->
+<div class="hdr">
+  <div class="hdr-left">
+    <h1>Daily Work Brief</h1>
+    <div class="sub">{{ firm_name }}{% if your_name %} &nbsp;·&nbsp; {{ your_name }}{% endif %}</div>
+  </div>
+  <div class="hdr-right">
+    <div class="date">{{ brief.report_date_str }}</div>
+    <div>Generated {{ generated_at }}</div>
+  </div>
+</div>
+
+<!-- ══ SUMMARY CHIPS ═════════════════════════════════════════ -->
+<div class="chips">
+  {% if brief.overdue %}
+  <div class="chip chip-red">
+    <div class="n n-red">{{ brief.overdue | length }}</div>
+    <div class="l">Overdue</div>
+  </div>
+  {% endif %}
+  <div class="chip">
+    <div class="n n-red">{{ brief.due_today | length }}</div>
+    <div class="l">Due Today</div>
+  </div>
+  <div class="chip">
+    <div class="n n-orange">{{ brief.due_soon | length }}</div>
+    <div class="l">Due in 1–4 Days</div>
+  </div>
+  <div class="chip">
+    <div class="n n-blue">{{ brief.due_30 | sum(attribute='events') | list | length if brief.due_30 else 0 }}</div>
+    <div class="l">Due in 5–30 Days</div>
+  </div>
+  <div class="chip">
+    <div class="n n-slate">{{ brief.other_today | length + brief.other_soon | length }}</div>
+    <div class="l">Other (Today + Soon)</div>
+  </div>
+</div>
+
+
+{# ══ MACRO: deadline row ══════════════════════════════════════ #}
+{% macro dl_row(ev, badge_class, badge_text, row_class='') %}
+<tr class="{{ row_class }}">
+  <td class="c-client">{{ ev.client_name if ev.client_name else '—' }}</td>
+  <td class="c-task">{{ ev.task_label }}</td>
+  <td class="c-date">{{ ev.start.strftime('%b %d') }}</td>
+  <td class="c-days"><span class="badge {{ badge_class }}">{{ badge_text }}</span></td>
+</tr>
+{% endmacro %}
+
+{# ══ MACRO: other-event row ═══════════════════════════════════ #}
+{% macro ot_row(ev, badge_class, badge_text) %}
+<tr>
+  <td class="c-time">
+    {% if not ev.is_all_day and ev.start_dt %}
+      {{ ev.start_dt.strftime('%-I:%M %p') }}
+    {% else %}
+      All day
+    {% endif %}
+  </td>
+  <td class="c-what">{{ ev.subject }}</td>
+  <td class="c-where dimmed">{{ ev.location[:35] if ev.location else '' }}</td>
+  <td class="c-ddays"><span class="badge {{ badge_class }}">{{ badge_text }}</span></td>
+</tr>
+{% endmacro %}
+
+{# ══ DEADLINE TABLE HEADER ════════════════════════════════════ #}
+{% macro dl_thead() %}
+<thead><tr>
+  <th class="c-client">Client</th>
+  <th class="c-task">Task / Deadline</th>
+  <th class="c-date">Due</th>
+  <th class="c-days">Days</th>
+</tr></thead>
+{% endmacro %}
+
+{# ══ OTHER TABLE HEADER ═══════════════════════════════════════ #}
+{% macro ot_thead() %}
+<thead><tr>
+  <th class="c-time">Time</th>
+  <th class="c-what">Event</th>
+  <th class="c-where">Location</th>
+  <th class="c-ddays">Days</th>
+</tr></thead>
+{% endmacro %}
+
+
+<!-- ══ OVERDUE ═══════════════════════════════════════════════ -->
+{% if brief.overdue %}
+<div class="section">
+  <div class="sec-hdr hdr-red">⚠ Overdue — Action Required</div>
+  <table>{{ dl_thead() }}<tbody>
+  {% for ev in brief.overdue %}
+    {{ dl_row(ev, 'b-overdue', ev.days_until | abs ~ 'd ago', 'overdue-row') }}
+  {% endfor %}
+  </tbody></table>
+</div>
+{% endif %}
+
+
+<!-- ══ DEADLINES — TODAY ════════════════════════════════════ -->
+<div class="section">
+  <div class="sec-hdr {% if brief.due_today %}hdr-red{% else %}hdr-blue{% endif %}">
+    📋 Deadlines — Due Today
+  </div>
+  {% if brief.due_today %}
+  <table>{{ dl_thead() }}<tbody>
+  {% for ev in brief.due_today %}
+    {{ dl_row(ev, 'b-today', 'TODAY', 'bold') }}
+  {% endfor %}
+  </tbody></table>
+  {% else %}
+  <p class="none-msg">✓ No deadlines due today.</p>
+  {% endif %}
+</div>
+
+
+<!-- ══ DEADLINES — NEXT 4 DAYS ══════════════════════════════ -->
+{% if brief.due_soon %}
+<div class="section">
+  <div class="sec-hdr hdr-orange">⏰ Deadlines — Due in 1–4 Days</div>
+  <table>{{ dl_thead() }}<tbody>
+  {% for ev in brief.due_soon %}
+    {{ dl_row(ev, 'b-soon', ev.days_until ~ 'd') }}
+  {% endfor %}
+  </tbody></table>
+</div>
+{% endif %}
+
+
+<!-- ══ OTHER EVENTS — TODAY ═════════════════════════════════ -->
+{% if brief.other_today %}
+<div class="section">
+  <div class="sec-hdr hdr-slate">📅 Other — Today</div>
+  <table>{{ ot_thead() }}<tbody>
+  {% for ev in brief.other_today %}{{ ot_row(ev, 'b-today', 'Today') }}{% endfor %}
+  </tbody></table>
+</div>
+{% endif %}
+
+
+<!-- ══ OTHER EVENTS — NEXT 4 DAYS ═══════════════════════════ -->
+{% if brief.other_soon %}
+<div class="section">
+  <div class="sec-hdr hdr-stone">📅 Other — Next 4 Days</div>
+  <table>{{ ot_thead() }}<tbody>
+  {% for ev in brief.other_soon %}{{ ot_row(ev, 'b-soon', ev.days_until ~ 'd') }}{% endfor %}
+  </tbody></table>
+</div>
+{% endif %}
+
+
+<!-- ══ DIVIDER ═══════════════════════════════════════════════ -->
+{% if brief.due_30 or brief.other_30 %}
+<hr class="divider">
+{% endif %}
+
+
+<!-- ══ DEADLINES — 5 to 30 DAYS ════════════════════════════ -->
+{% if brief.due_30 %}
+<div class="section">
+  <div class="sec-hdr hdr-blue">📌 Deadlines — Next 30 Days</div>
+  <table>{{ dl_thead() }}<tbody>
+  {% for group in brief.due_30 %}
+  <tr class="day-row"><td colspan="4">{{ group.date_str }}</td></tr>
+  {% for ev in group.events %}
+    {{ dl_row(ev, 'b-30', ev.days_until ~ 'd') }}
+  {% endfor %}
+  {% endfor %}
+  </tbody></table>
+</div>
+{% endif %}
+
+
+<!-- ══ OTHER EVENTS — 5 to 30 DAYS ════════════════════════ -->
+{% if brief.other_30 %}
+<div class="section">
+  <div class="sec-hdr hdr-stone">📅 Other — Next 30 Days</div>
+  <table>{{ ot_thead() }}<tbody>
+  {% for group in brief.other_30 %}
+  <tr class="day-row"><td colspan="4">{{ group.date_str }}</td></tr>
+  {% for ev in group.events %}{{ ot_row(ev, 'b-other', ev.days_until ~ 'd') }}{% endfor %}
+  {% endfor %}
+  </tbody></table>
+</div>
+{% endif %}
+
+
+{% if not brief.has_anything %}
+<p style="text-align:center;color:#16a34a;font-size:13pt;padding:25pt 0;font-weight:700;">
+  ✓ Nothing on the calendar for the next {{ lookahead_days }} days.
+</p>
+{% endif %}
+
+</body>
+</html>

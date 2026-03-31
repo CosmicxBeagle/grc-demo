@@ -178,9 +178,12 @@ class Risk(Base):
     description = Column(Text)
     asset_id = Column(Integer, ForeignKey("assets.id"), nullable=True)
     threat_id = Column(Integer, ForeignKey("threats.id"), nullable=True)
-    likelihood = Column(Integer, default=3)   # 1-5
-    impact = Column(Integer, default=3)       # 1-5
-    # inherent_score = likelihood * impact (computed property)
+    likelihood = Column(Integer, default=3)            # 1-5 inherent
+    impact = Column(Integer, default=3)                # 1-5 inherent
+    # inherent_score = likelihood * impact (computed)
+    residual_likelihood = Column(Integer, nullable=True)  # 1-5 after controls
+    residual_impact     = Column(Integer, nullable=True)  # 1-5 after controls
+    # residual_score = residual_likelihood * residual_impact (computed)
     treatment = Column(String(20), default="mitigate")  # mitigate / accept / transfer / avoid
     status = Column(String(20), default="open")         # open / mitigated / accepted / transferred / closed
     owner = Column(String(100))

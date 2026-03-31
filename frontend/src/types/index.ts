@@ -197,6 +197,9 @@ export interface Risk {
   likelihood: number;
   impact: number;
   inherent_score: number;
+  residual_likelihood?: number;
+  residual_impact?: number;
+  residual_score?: number;
   days_open: number;
   treatment?: RiskTreatment;
   status: RiskStatus;

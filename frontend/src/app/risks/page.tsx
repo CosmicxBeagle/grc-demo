@@ -110,6 +110,8 @@ const EMPTY_FORM = {
   threat_id: "",
   likelihood: 3,
   impact: 3,
+  residual_likelihood: 0,   // 0 = not set
+  residual_impact: 0,
   treatment: "mitigate",
   status: "open",
   owner: "",
@@ -174,7 +176,7 @@ export default function RisksPage() {
     ? risks
     : risks.filter(r => r.status === filter);
 
-  // Matrix data
+  // Matrix data — inherent positions
   const matrixData = risks.map(r => ({
     x: r.likelihood,
     y: r.impact,
@@ -182,6 +184,17 @@ export default function RisksPage() {
     score: r.inherent_score,
     id: r.id,
   }));
+
+  // Residual positions — only risks where both residual values are set
+  const matrixResidual = risks
+    .filter(r => r.residual_likelihood && r.residual_impact)
+    .map(r => ({
+      x: r.residual_likelihood!,
+      y: r.residual_impact!,
+      name: r.name,
+      score: r.residual_score!,
+      id: r.id,
+    }));
 
   const openAdd = () => {
     setEditId(null);
@@ -199,6 +212,8 @@ export default function RisksPage() {
       threat_id: r.threat_id ? String(r.threat_id) : "",
       likelihood: r.likelihood,
       impact: r.impact,
+      residual_likelihood: r.residual_likelihood ?? 0,
+      residual_impact: r.residual_impact ?? 0,
       treatment: r.treatment ?? "mitigate",
       status: r.status,
       owner: r.owner ?? "",
@@ -220,6 +235,8 @@ export default function RisksPage() {
         threat_id: form.threat_id ? Number(form.threat_id) : null,
         likelihood: Number(form.likelihood),
         impact: Number(form.impact),
+        residual_likelihood: form.residual_likelihood > 0 ? Number(form.residual_likelihood) : null,
+        residual_impact:     form.residual_impact     > 0 ? Number(form.residual_impact)     : null,
         treatment: form.treatment,
         status: form.status,
         owner: form.owner || null,
@@ -385,20 +402,42 @@ export default function RisksPage() {
                   tick={{ fontSize: 11 }}
                 />
                 <Tooltip content={<MatrixTooltip />} />
-                <Scatter data={matrixData} shape="circle">
+                {/* Inherent risk — filled circles */}
+                <Scatter name="Inherent" data={matrixData} shape="circle">
                   {matrixData.map((entry, idx) => (
-                    <Cell key={idx} fill={scoreColor(entry.score)} opacity={0.9} />
+                    <Cell key={idx} fill={scoreColor(entry.score)} opacity={0.85} />
                   ))}
                 </Scatter>
+                {/* Residual risk — hollow circles (stroke only) */}
+                {matrixResidual.length > 0 && (
+                  <Scatter name="Residual" data={matrixResidual} shape={(props: any) => {
+                    const { cx, cy } = props;
+                    return (
+                      <circle
+                        cx={cx} cy={cy} r={10}
+                        fill="white"
+                        stroke={scoreColor(props.payload.score)}
+                        strokeWidth={2.5}
+                        strokeDasharray="4 2"
+                      />
+                    );
+                  }} />
+                )}
               </ScatterChart>
             </ResponsiveContainer>
           </div>
           {/* Legend */}
-          <div className="flex items-center gap-4 mt-2 text-xs text-gray-600 justify-center">
+          <div className="flex flex-wrap items-center gap-4 mt-2 text-xs text-gray-600 justify-center">
             <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-green-500 inline-block"></span>Low (1-8)</span>
             <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-yellow-500 inline-block"></span>Medium (9-14)</span>
             <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-orange-500 inline-block"></span>High (15-19)</span>
             <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-red-500 inline-block"></span>Critical (20-25)</span>
+            {matrixResidual.length > 0 && (
+              <span className="flex items-center gap-1.5 border-l border-gray-200 pl-4">
+                <span className="w-3 h-3 rounded-full border-2 border-gray-500 inline-block" style={{ borderStyle: "dashed" }}></span>
+                Residual position
+              </span>
+            )}
           </div>
         </div>
       )}
@@ -495,6 +534,61 @@ export default function RisksPage() {
                 <span>1</span><span>2</span><span>3</span><span>4</span><span>5</span>
               </div>
             </div>
+            {/* Residual risk divider */}
+            <div className="md:col-span-2 border-t border-dashed border-gray-200 pt-3">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-semibold text-green-700 uppercase tracking-wide">Residual Risk</span>
+                <span className="text-xs text-gray-400">— after controls are applied (optional)</span>
+                {form.residual_likelihood > 0 && form.residual_impact > 0 && (
+                  <span className={`ml-auto inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold ${scoreBgClass(form.residual_likelihood * form.residual_impact)}`}>
+                    Score: {form.residual_likelihood * form.residual_impact} — {scoreLabel(form.residual_likelihood * form.residual_impact)}
+                  </span>
+                )}
+              </div>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Residual Likelihood: <span className="font-semibold text-green-700">{form.residual_likelihood > 0 ? form.residual_likelihood : "—"}</span>
+                {form.residual_likelihood > 0 && (
+                  <span className="ml-2 text-xs text-gray-400">
+                    {["", "Very Low", "Low", "Medium", "High", "Very High"][form.residual_likelihood]}
+                  </span>
+                )}
+              </label>
+              <input
+                type="range"
+                min={0}
+                max={5}
+                value={form.residual_likelihood}
+                onChange={e => setForm({ ...form, residual_likelihood: Number(e.target.value) })}
+                className="w-full accent-green-600"
+              />
+              <div className="flex justify-between text-xs text-gray-400 mt-0.5">
+                <span>Not set</span><span>1</span><span>2</span><span>3</span><span>4</span><span>5</span>
+              </div>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Residual Impact: <span className="font-semibold text-green-700">{form.residual_impact > 0 ? form.residual_impact : "—"}</span>
+                {form.residual_impact > 0 && (
+                  <span className="ml-2 text-xs text-gray-400">
+                    {["", "Negligible", "Minor", "Moderate", "Significant", "Severe"][form.residual_impact]}
+                  </span>
+                )}
+              </label>
+              <input
+                type="range"
+                min={0}
+                max={5}
+                value={form.residual_impact}
+                onChange={e => setForm({ ...form, residual_impact: Number(e.target.value) })}
+                className="w-full accent-green-600"
+              />
+              <div className="flex justify-between text-xs text-gray-400 mt-0.5">
+                <span>Not set</span><span>1</span><span>2</span><span>3</span><span>4</span><span>5</span>
+              </div>
+            </div>
+            <div className="md:col-span-2 border-t border-dashed border-gray-200 pt-3" />
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Treatment</label>
               <select
@@ -640,10 +734,22 @@ export default function RisksPage() {
                       {risk.threat ? risk.threat.name : <span className="text-gray-300">-</span>}
                     </td>
                     <td className="px-4 py-3">
-                      <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold ${scoreBgClass(risk.inherent_score)}`}>
-                        {risk.inherent_score} — {scoreLabel(risk.inherent_score)}
-                      </span>
-                      <div className="text-xs text-gray-400 mt-0.5">L{risk.likelihood} × I{risk.impact}</div>
+                      <div className="flex items-center gap-1 mb-0.5">
+                        <span className="text-xs text-gray-400 w-14 shrink-0">Inherent</span>
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold ${scoreBgClass(risk.inherent_score)}`}>
+                          {risk.inherent_score} — {scoreLabel(risk.inherent_score)}
+                        </span>
+                      </div>
+                      {risk.residual_score != null ? (
+                        <div className="flex items-center gap-1">
+                          <span className="text-xs text-gray-400 w-14 shrink-0">Residual</span>
+                          <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold ${scoreBgClass(risk.residual_score)}`}>
+                            {risk.residual_score} — {scoreLabel(risk.residual_score)}
+                          </span>
+                        </div>
+                      ) : (
+                        <div className="text-xs text-gray-300 mt-0.5">No residual set</div>
+                      )}
                     </td>
                     <td className="px-4 py-3">
                       <span className="inline-flex items-center px-2 py-0.5 rounded text-xs bg-gray-100 text-gray-700 capitalize">

@@ -413,6 +413,8 @@ class RiskCreate(BaseModel):
     threat_id: Optional[int] = None
     likelihood: int = 3
     impact: int = 3
+    residual_likelihood: Optional[int] = None
+    residual_impact: Optional[int] = None
     treatment: Optional[str] = "mitigate"
     status: Optional[str] = "open"
     owner: Optional[str] = None
@@ -425,6 +427,8 @@ class RiskUpdate(BaseModel):
     threat_id: Optional[int] = None
     likelihood: Optional[int] = None
     impact: Optional[int] = None
+    residual_likelihood: Optional[int] = None
+    residual_impact: Optional[int] = None
     treatment: Optional[str] = None
     status: Optional[str] = None
     owner: Optional[str] = None
@@ -439,6 +443,9 @@ class RiskOut(BaseModel):
     likelihood: int
     impact: int
     inherent_score: int = 0
+    residual_likelihood: Optional[int] = None
+    residual_impact: Optional[int] = None
+    residual_score: Optional[int] = None
     treatment: Optional[str] = None
     status: str
     owner: Optional[str] = None
@@ -454,6 +461,8 @@ class RiskOut(BaseModel):
     @model_validator(mode='after')
     def compute_fields(self):
         self.inherent_score = self.likelihood * self.impact
+        if self.residual_likelihood and self.residual_impact:
+            self.residual_score = self.residual_likelihood * self.residual_impact
         if self.created_at:
             from datetime import datetime as _dt
             self.days_open = (_dt.utcnow() - self.created_at).days

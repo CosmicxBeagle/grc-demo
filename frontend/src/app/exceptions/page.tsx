@@ -1,29 +1,28 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useState, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import AppShell from "@/components/AppShell";
 import { exceptionsApi, approvalsApi, downloadExport } from "@/lib/api";
 import { getUser } from "@/lib/auth";
 import type { ControlException, ExceptionStatus, ExceptionType, ApprovalWorkflow, ApprovalPolicy } from "@/types";
+import type { AxiosError } from "axios";
 import ApprovalTimeline from "@/components/ApprovalTimeline";
+import StatusBadge from "@/components/StatusBadge";
+import SeverityBadge from "@/components/ui/SeverityBadge";
+import ExpiryIndicator from "@/components/ui/ExpiryIndicator";
+import PageHeader from "@/components/ui/PageHeader";
+import Pagination from "@/components/ui/Pagination";
 import {
   PlusIcon,
   XMarkIcon,
   CheckIcon,
-  ClockIcon,
   NoSymbolIcon,
   ExclamationCircleIcon,
+  ArrowDownTrayIcon,
 } from "@heroicons/react/24/outline";
 
 // ── helpers ─────────────────────────────────────────────────────────────────
-
-const STATUS_STYLES: Record<ExceptionStatus, string> = {
-  draft:            "bg-gray-100 text-gray-600",
-  pending_approval: "bg-yellow-100 text-yellow-700",
-  approved:         "bg-green-100 text-green-700",
-  rejected:         "bg-red-100 text-red-700",
-  expired:          "bg-slate-100 text-slate-500",
-};
 
 const STATUS_LABELS: Record<ExceptionStatus, string> = {
   draft:            "Draft",
@@ -37,13 +36,6 @@ const TYPE_LABELS: Record<ExceptionType, string> = {
   exception:             "Exception",
   risk_acceptance:       "Risk Acceptance",
   compensating_control:  "Compensating Control",
-};
-
-const RISK_COLORS: Record<string, string> = {
-  critical: "text-red-700 bg-red-50 border-red-200",
-  high:     "text-orange-700 bg-orange-50 border-orange-200",
-  medium:   "text-yellow-700 bg-yellow-50 border-yellow-200",
-  low:      "text-green-700 bg-green-50 border-green-200",
 };
 
 const ALL_STATUSES: ExceptionStatus[] = ["pending_approval", "approved", "draft", "rejected", "expired"];
@@ -211,7 +203,7 @@ function ExceptionModal({
           <button
             onClick={save}
             disabled={saving || !form.control_id || !form.title || !form.justification}
-            className="px-4 py-2 text-sm bg-brand-600 text-white rounded-lg hover:bg-brand-700 disabled:opacity-50"
+            className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
           >
             {saving ? "Saving…" : "Submit for Approval"}
           </button>
@@ -287,14 +279,14 @@ function ExceptionWorkflowPanel({
             <select
               value={selPolicy}
               onChange={e => setSelPolicy(e.target.value ? +e.target.value : "")}
-              className="flex-1 border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400"
+              className="flex-1 border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
             >
               {policies.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
             </select>
             <button
               onClick={startWorkflow}
               disabled={starting || !selPolicy}
-              className="bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium rounded-lg px-4 py-1.5 disabled:opacity-50"
+              className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg px-4 py-1.5 disabled:opacity-50"
             >
               {starting ? "Starting…" : "Start"}
             </button>
@@ -303,7 +295,7 @@ function ExceptionWorkflowPanel({
       ) : (
         <p className="text-xs text-gray-400 italic">
           No approval policies defined.{" "}
-          <a href="/settings/approvals" className="text-brand-600 hover:underline">Create one in Settings →</a>
+          <a href="/settings/approvals" className="text-blue-600 hover:underline">Create one in Settings →</a>
         </p>
       )}
     </div>
@@ -312,13 +304,18 @@ function ExceptionWorkflowPanel({
 
 // ── main page ────────────────────────────────────────────────────────────────
 
-export default function ExceptionsPage() {
+function ExceptionsPageContent() {
+  const searchParams = useSearchParams();
   const [exceptions, setExceptions] = useState<ControlException[]>([]);
   const [loading, setLoading]       = useState(true);
-  const [statusFilter, setStatusFilter] = useState<ExceptionStatus | "all">("all");
+  const [statusFilter, setStatusFilter] = useState<ExceptionStatus | "all" | "expiring_soon">("all");
   const [showModal, setShowModal]   = useState(false);
   const [expanded, setExpanded]     = useState<number | null>(null);
+  const [rejectModal, setRejectModal] = useState<number | null>(null);
+  const [rejectReason, setRejectReason] = useState("");
+  const [actionError, setActionError] = useState<string | null>(null);
   const user = getUser();
+  const canApprove = user?.role === "admin" || user?.role === "grc_manager";
 
   const load = () => {
     exceptionsApi.list().then((r) => {
@@ -329,9 +326,35 @@ export default function ExceptionsPage() {
 
   useEffect(() => { load(); }, []);
 
-  const filtered = statusFilter === "all"
-    ? exceptions
-    : exceptions.filter((e) => e.status === statusFilter);
+  // Auto-expand the targeted exception when coming from My Work
+  useEffect(() => {
+    const targetId = searchParams.get("id");
+    if (!targetId || exceptions.length === 0) return;
+    const id = Number(targetId);
+    setExpanded(id);
+    setTimeout(() => {
+      document.getElementById(`exception-${id}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 150);
+  }, [exceptions, searchParams]);
+
+  const expiringSoon = exceptions.filter(e => {
+    const effectiveExpiry = e.expires_at ?? e.expiry_date;
+    if (!effectiveExpiry || e.status !== "approved") return false;
+    const days = daysTill(effectiveExpiry);
+    return days !== null && days <= 60 && days >= 0;
+  });
+
+  const filtered = statusFilter === "expiring_soon"
+    ? expiringSoon
+    : statusFilter === "all"
+      ? exceptions
+      : exceptions.filter((e) => e.status === statusFilter);
+
+  // Pagination
+  const [page, setPage]         = useState(1);
+  const [pageSize, setPageSize] = useState(25);
+  useEffect(() => { setPage(1); }, [statusFilter]);
+  const pagedFiltered = filtered.slice((page - 1) * pageSize, page * pageSize);
 
   const counts = ALL_STATUSES.reduce<Record<string, number>>((acc, s) => {
     acc[s] = exceptions.filter((e) => e.status === s).length;
@@ -340,15 +363,40 @@ export default function ExceptionsPage() {
 
   const handleApprove = async (id: number) => {
     if (!user) return;
-    await exceptionsApi.approve(id, user.id);
+    await exceptionsApi.approve(id);
     load();
   };
 
-  const handleReject = async (id: number) => {
-    if (!user) return;
-    const notes = prompt("Reason for rejection (optional):");
-    await exceptionsApi.reject(id, user.id, notes ?? undefined);
-    load();
+  const openRejectModal = (id: number) => {
+    setRejectReason("");
+    setActionError(null);
+    setRejectModal(id);
+  };
+
+  const handleRejectWithReason = async () => {
+    if (!rejectModal) return;
+    if (rejectReason.trim().length < 20) {
+      setActionError("Please provide at least 20 characters explaining the rejection reason.");
+      return;
+    }
+    try {
+      await exceptionsApi.reject(rejectModal, rejectReason.trim());
+      setRejectModal(null);
+      load();
+    } catch (err: unknown) {
+      const axErr = err as AxiosError<{ detail: string }>;
+      setActionError(axErr.response?.data?.detail ?? "Failed to reject exception.");
+    }
+  };
+
+  const handleResubmit = async (id: number) => {
+    try {
+      await exceptionsApi.resubmit(id);
+      load();
+    } catch (err: unknown) {
+      const axErr = err as AxiosError<{ detail: string }>;
+      alert(axErr.response?.data?.detail ?? "Failed to resubmit.");
+    }
   };
 
   const handleStatusChange = async (id: number, status: string) => {
@@ -360,37 +408,34 @@ export default function ExceptionsPage() {
     <AppShell>
       <div className="max-w-6xl mx-auto space-y-6">
 
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">Control Exceptions</h1>
-            <p className="text-sm text-gray-500 mt-0.5">
-              {exceptions.length} total · {counts["pending_approval"] ?? 0} pending approval
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-          <button
-            onClick={() => downloadExport("/exports/exceptions", `exceptions_register_${new Date().toISOString().slice(0,10)}.xlsx`)}
-            className="inline-flex items-center gap-2 border border-gray-300 text-gray-700 px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
-            Export
-          </button>
-          <button
-            onClick={() => setShowModal(true)}
-            className="inline-flex items-center gap-2 bg-brand-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-brand-700 transition-colors"
-          >
-            <PlusIcon className="w-4 h-4" />
-            New Exception
-          </button>
-          </div>
-        </div>
+        <PageHeader
+          title="Control Exceptions"
+          subtitle={`${exceptions.length} total · ${counts["pending_approval"] ?? 0} pending approval`}
+          actions={
+            <>
+              <button
+                onClick={() => downloadExport("/exports/exceptions", `exceptions_register_${new Date().toISOString().slice(0,10)}.xlsx`)}
+                className="inline-flex items-center gap-2 border border-gray-200 text-gray-600 px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors"
+              >
+                <ArrowDownTrayIcon className="w-4 h-4" />
+                Export
+              </button>
+              <button
+                onClick={() => setShowModal(true)}
+                className="inline-flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors"
+              >
+                <PlusIcon className="w-4 h-4" />
+                New Exception
+              </button>
+            </>
+          }
+        />
 
         {/* Status filter tabs */}
-        <div className="flex gap-2 flex-wrap">
+        <div className="flex gap-0 border-b border-gray-200">
           <button
             onClick={() => setStatusFilter("all")}
-            className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${statusFilter === "all" ? "bg-brand-600 text-white" : "border border-gray-200 text-gray-600 hover:bg-gray-50"}`}
+            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors -mb-px ${statusFilter === "all" ? "border-blue-600 text-blue-600" : "border-transparent text-gray-500 hover:text-gray-700"}`}
           >
             All ({exceptions.length})
           </button>
@@ -398,11 +443,19 @@ export default function ExceptionsPage() {
             <button
               key={s}
               onClick={() => setStatusFilter(s)}
-              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${statusFilter === s ? "bg-brand-600 text-white" : "border border-gray-200 text-gray-600 hover:bg-gray-50"}`}
+              className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors -mb-px ${statusFilter === s ? "border-blue-600 text-blue-600" : "border-transparent text-gray-500 hover:text-gray-700"}`}
             >
-              {STATUS_LABELS[s]} {counts[s] > 0 && `(${counts[s]})`}
+              {STATUS_LABELS[s]}{counts[s] > 0 && ` (${counts[s]})`}
             </button>
           ))}
+          {expiringSoon.length > 0 && (
+            <button
+              onClick={() => setStatusFilter("expiring_soon")}
+              className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors -mb-px ${statusFilter === "expiring_soon" ? "border-amber-500 text-amber-600" : "border-transparent text-amber-600 hover:text-amber-700"}`}
+            >
+              Expiring Soon ({expiringSoon.length})
+            </button>
+          )}
         </div>
 
         {/* List */}
@@ -416,21 +469,19 @@ export default function ExceptionsPage() {
           </div>
         ) : (
           <div className="space-y-3">
-            {filtered.map((exc) => {
+            {pagedFiltered.map((exc) => {
               const days = daysTill(exc.expiry_date);
               const isExpanded = expanded === exc.id;
 
               return (
-                <div key={exc.id} className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+                <div key={exc.id} id={`exception-${exc.id}`} className="bg-white border border-gray-200 rounded-xl overflow-hidden scroll-mt-4">
                   {/* Row header */}
                   <button
                     className="w-full text-left px-5 py-4 flex items-center gap-4 hover:bg-gray-50 transition-colors"
                     onClick={() => setExpanded(isExpanded ? null : exc.id)}
                   >
                     {/* Risk level pill */}
-                    <span className={`shrink-0 inline-flex items-center px-2 py-0.5 rounded border text-xs font-semibold uppercase ${RISK_COLORS[exc.risk_level]}`}>
-                      {exc.risk_level}
-                    </span>
+                    <SeverityBadge severity={exc.risk_level} />
 
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
@@ -442,7 +493,7 @@ export default function ExceptionsPage() {
                           Control:{" "}
                           <Link
                             href={`/controls/${exc.control.id}`}
-                            className="text-brand-600 hover:underline font-mono"
+                            className="text-blue-600 hover:underline font-mono"
                             onClick={(e) => e.stopPropagation()}
                           >
                             {exc.control.control_id}
@@ -453,20 +504,17 @@ export default function ExceptionsPage() {
                     </div>
 
                     <div className="flex items-center gap-3 shrink-0">
-                      {/* Expiry */}
-                      {exc.expiry_date && (
-                        <span className={`text-xs flex items-center gap-1 ${days !== null && days <= 30 ? "text-red-600 font-semibold" : "text-gray-400"}`}>
-                          <ClockIcon className="w-3.5 h-3.5" />
-                          {days !== null && days < 0 ? "Expired" : days !== null ? `${days}d left` : exc.expiry_date}
-                        </span>
+                      {/* Expiry badge (lifecycle-aware) */}
+                      <ExpiryIndicator expiresAt={exc.expires_at ?? exc.expiry_date} hideIfEmpty />
+
+                      {exc.resubmission_count && exc.resubmission_count > 0 && (
+                        <span className="text-xs text-gray-400">Resubmission #{exc.resubmission_count}</span>
                       )}
 
-                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${STATUS_STYLES[exc.status]}`}>
-                        {STATUS_LABELS[exc.status]}
-                      </span>
+                      <StatusBadge status={exc.status} />
 
                       {/* Approve / Reject quick actions */}
-                      {exc.status === "pending_approval" && user?.role === "admin" && (
+                      {exc.status === "pending_approval" && canApprove && (
                         <div className="flex gap-1" onClick={(e) => e.stopPropagation()}>
                           <button
                             onClick={() => handleApprove(exc.id)}
@@ -476,7 +524,7 @@ export default function ExceptionsPage() {
                             <CheckIcon className="w-4 h-4" />
                           </button>
                           <button
-                            onClick={() => handleReject(exc.id)}
+                            onClick={(e) => { e.stopPropagation(); openRejectModal(exc.id); }}
                             title="Reject"
                             className="p-1.5 rounded-lg bg-red-50 text-red-600 hover:bg-red-100 transition-colors"
                           >
@@ -510,11 +558,39 @@ export default function ExceptionsPage() {
                         </div>
                       )}
 
+                      {/* 4B: Rejection reason + resubmit */}
+                      {exc.rejection_reason && (
+                        <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-3">
+                          <p className="text-xs font-semibold text-red-500 uppercase tracking-wide mb-1">Rejection Reason</p>
+                          <p className="text-sm text-red-700 whitespace-pre-wrap">{exc.rejection_reason}</p>
+                          {exc.status === "rejected" && (
+                            <button
+                              onClick={() => handleResubmit(exc.id)}
+                              className="mt-2 text-xs bg-red-600 text-white px-3 py-1.5 rounded-lg hover:bg-red-700 font-medium"
+                            >
+                              Resubmit Exception
+                            </button>
+                          )}
+                        </div>
+                      )}
+
+                      {/* 4B: Approved expiry from lifecycle service */}
+                      {exc.expires_at && exc.status === "approved" && (
+                        <div className="bg-green-50 border border-green-200 rounded-lg px-4 py-3 text-sm">
+                          <span className="text-xs font-semibold text-green-600 uppercase tracking-wide">Approved until: </span>
+                          <span className="text-green-700">{new Date(exc.expires_at).toLocaleDateString()}</span>
+                          {exc.expiry_notified_at && (
+                            <span className="text-xs text-green-500 ml-3">· 30-day warning sent {new Date(exc.expiry_notified_at).toLocaleDateString()}</span>
+                          )}
+                        </div>
+                      )}
+
                       <div className="flex flex-wrap gap-6 text-xs text-gray-400">
                         {exc.requester && <span>Requested by <b className="text-gray-600">{exc.requester.display_name}</b></span>}
                         {exc.approver  && <span>Reviewed by <b className="text-gray-600">{exc.approver.display_name}</b></span>}
                         <span>Created {new Date(exc.created_at).toLocaleDateString()}</span>
-                        {exc.expiry_date && <span>Expires {new Date(exc.expiry_date).toLocaleDateString()}</span>}
+                        {exc.expiry_date && <span>Requested expiry {new Date(exc.expiry_date).toLocaleDateString()}</span>}
+                        {exc.parent_exception_id && <span>· Resubmission of Exception #{exc.parent_exception_id}</span>}
                       </div>
 
                       {/* Approval Workflow */}
@@ -525,7 +601,8 @@ export default function ExceptionsPage() {
                         onRefresh={load}
                       />
 
-                      {/* Status change */}
+                      {/* Status change — admin + grc_manager only */}
+                      {canApprove && (
                       <div className="flex items-center gap-2 pt-1">
                         <span className="text-xs text-gray-400">Change status:</span>
                         {(["draft","pending_approval","approved","rejected","expired"] as ExceptionStatus[])
@@ -540,18 +617,29 @@ export default function ExceptionsPage() {
                             </button>
                           ))
                         }
+                        {user?.role === "admin" && (
                         <button
                           onClick={async () => { await exceptionsApi.delete(exc.id); load(); }}
                           className="ml-auto text-xs text-red-400 hover:text-red-600 transition-colors"
                         >
                           Delete
                         </button>
+                        )}
                       </div>
+                      )}
                     </div>
                   )}
                 </div>
               );
             })}
+            <Pagination
+              total={filtered.length}
+              page={page}
+              pageSize={pageSize}
+              onPageChange={setPage}
+              onPageSizeChange={(n) => { setPageSize(n); setPage(1); }}
+              itemLabel="exception"
+            />
           </div>
         )}
       </div>
@@ -563,6 +651,57 @@ export default function ExceptionsPage() {
           onSaved={(e) => { setExceptions((prev) => [e, ...prev]); setShowModal(false); }}
         />
       )}
+
+      {/* 4B: Reject with reason modal */}
+      {rejectModal !== null && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md">
+            <div className="flex items-center justify-between px-6 py-4 border-b">
+              <h2 className="text-lg font-semibold text-gray-900">Reject Exception</h2>
+              <button onClick={() => setRejectModal(null)} className="text-gray-400 hover:text-gray-600">
+                <XMarkIcon className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="px-6 py-5 space-y-3">
+              {actionError && (
+                <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{actionError}</div>
+              )}
+              <label className="block text-sm font-medium text-gray-700">
+                Rejection Reason <span className="text-red-500">*</span>
+                <span className="text-xs font-normal text-gray-400 ml-1">(min 20 characters)</span>
+              </label>
+              <textarea
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-red-400 focus:border-transparent"
+                rows={4}
+                value={rejectReason}
+                onChange={e => setRejectReason(e.target.value)}
+                placeholder="Explain why this exception cannot be approved and what the requestor should address before resubmitting…"
+              />
+              <p className="text-xs text-gray-400">{rejectReason.length} / 20 minimum</p>
+            </div>
+            <div className="flex justify-end gap-3 px-6 py-4 border-t bg-gray-50 rounded-b-xl">
+              <button onClick={() => setRejectModal(null)} className="px-4 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-100">
+                Cancel
+              </button>
+              <button
+                onClick={handleRejectWithReason}
+                disabled={rejectReason.trim().length < 20}
+                className="px-4 py-2 text-sm bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 font-medium"
+              >
+                Confirm Rejection
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </AppShell>
+  );
+}
+
+export default function ExceptionsPage() {
+  return (
+    <Suspense fallback={null}>
+      <ExceptionsPageContent />
+    </Suspense>
   );
 }

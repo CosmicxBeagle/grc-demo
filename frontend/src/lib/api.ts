@@ -1,36 +1,82 @@
 import axios from "axios";
 import { getToken, clearSession } from "./auth";
+import { SESSION_ID, trackError } from "./telemetry";
 import type {
   User, Control, TestCycle, TestCycleSummary,
   TestAssignment, DashboardStats, ControlCycleHistory, Deficiency,
-  Asset, Threat, Risk, TreatmentPlan, TreatmentMilestone, AuditLogEntry,
+  DeficiencyMilestone, Asset, Threat, Risk, TreatmentPlan, TreatmentMilestone,
+  AuditLogEntry, ChecklistItem, Notification,
 } from "@/types";
 
-const BASE = process.env.NEXT_PUBLIC_API_URL ?? "/api";
+const BASE = process.env.NEXT_PUBLIC_API_URL ?? "/api/v1";
 
-const client = axios.create({ baseURL: BASE });
+const client = axios.create({
+  baseURL: BASE,
+  // withCredentials sends HttpOnly session cookies on every request.
+  // In demo/token mode this is a no-op. In Okta/cookie mode it's required.
+  withCredentials: true,
+});
 
-// Attach token to every request
+// ── Request interceptor ───────────────────────────────────────────────────────
+// Attaches two headers to every outbound request:
+//
+//  X-Auth-Token   — demo mode session token (no-op in cookie/Okta mode)
+//  X-Request-ID   — unique ID for this specific request, generated client-side.
+//                   The backend echoes it in logs so you can find the exact
+//                   server-side log entry for any frontend error report.
+//                   Format: {session_id_prefix}-{timestamp}-{random}
 client.interceptors.request.use((config) => {
   const token = getToken();
   if (token) config.headers["X-Auth-Token"] = token;
+
+  // Correlation ID: session prefix + timestamp + random suffix
+  const requestId = `${SESSION_ID.slice(0, 8)}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+  config.headers["X-Request-ID"] = requestId;
+  // Store on config so the response interceptor can read it
+  (config as any)._requestId = requestId;
+
   return config;
 });
 
-// Redirect to login on 401
+// ── Response interceptor ──────────────────────────────────────────────────────
 client.interceptors.response.use(
   (res) => res,
   (err) => {
-    if (err.response?.status === 401) {
+    const status = err.response?.status;
+    const requestId = (err.config as any)?._requestId;
+
+    if (status === 401) {
+      // Session expired or not authenticated — redirect to login
       clearSession();
-      window.location.href = "/login";
+      const redirect = encodeURIComponent(window.location.pathname + window.location.search);
+      const expired = err.response?.data?.detail === "session_expired";
+      const base = `/login?redirect=${redirect}`;
+      window.location.href = expired ? `${base}&reason=expired` : base;
+    } else if (status >= 500) {
+      // 5xx = server error — report to telemetry so we know about it
+      // without waiting for a user to complain
+      trackError(
+        new Error(`API ${status}: ${err.config?.method?.toUpperCase()} ${err.config?.url} — ${err.response?.data?.detail ?? "server error"}`),
+        { component: "api-client", request_id: requestId, severity: "error" }
+      );
     }
+
     return Promise.reject(err);
   }
 );
 
 // ── Auth ───────────────────────────────────────────────────────────────────
 type TokenResponse = { access_token: string; token_type: string; user: User };
+export type AuthConfigResponse = {
+  mode: "demo" | "idp" | "disabled";
+  entra_enabled: boolean;
+  okta_enabled: boolean;
+  demo_enabled?: boolean;
+  azure_client_id?: string;
+  azure_tenant_id?: string;
+  okta_domain?: string;
+  okta_client_id?: string;
+};
 
 export const authApi = {
   login:      (username: string) =>
@@ -40,15 +86,15 @@ export const authApi = {
   oktaLogin:  (accessToken: string) =>
                 client.post<TokenResponse>("/auth/okta-login", { access_token: accessToken }),
   config:     () =>
-                client.get<{
-                  mode: "demo" | "idp";
-                  entra_enabled: boolean;
-                  okta_enabled: boolean;
-                  azure_client_id?: string;
-                  azure_tenant_id?: string;
-                  okta_domain?: string;
-                  okta_client_id?: string;
-                }>("/auth/config"),
+                client.get<AuthConfigResponse>("/auth/config"),
+  // Verify the session cookie is still valid and return the current user.
+  // Backend endpoint: GET /users/me (works for both token and cookie auth).
+  me:         () =>
+                client.get<User>("/users/me"),
+  // Clears the server-side session cookie. In demo/token mode also
+  // clears local sessionStorage via the interceptor chain.
+  logout:     () =>
+                client.post<void>("/auth/logout"),
 };
 
 export const userMgmtApi = {
@@ -62,6 +108,11 @@ export const userMgmtApi = {
                   client.patch<User>(`/users/${id}/status`, { status }),
   delete:       (id: number) =>
                   client.delete(`/users/${id}`),
+  // 5A: deactivation
+  openWork:     (id: number) =>
+                  client.get<{ open_assignments: number; open_milestones: number; pending_risk_reviews: number; total: number }>(`/users/${id}/open-work`),
+  deactivate:   (id: number, data: { reason: string; reassign_to_user_id?: number }) =>
+                  client.post<{ deactivated: boolean; reassigned: Record<string, number>; open_work_summary: Record<string, number> }>(`/users/${id}/deactivate`, data),
 };
 
 // ── Users ──────────────────────────────────────────────────────────────────
@@ -87,6 +138,7 @@ export const cyclesApi = {
   get:    (id: number)  => client.get<TestCycle>(`/test-cycles/${id}`),
   create: (data: unknown) => client.post<TestCycle>("/test-cycles", data),
   update: (id: number, data: unknown) => client.patch<TestCycle>(`/test-cycles/${id}`, data),
+  close:  (id: number) => client.post<TestCycle>(`/test-cycles/${id}/close`),
   addAssignment: (cycleId: number, data: unknown) =>
     client.post<TestAssignment>(`/test-cycles/${cycleId}/assignments`, data),
   bulkAddFramework: (cycleId: number, framework: string) =>
@@ -100,19 +152,47 @@ export const cyclesApi = {
       `/test-cycles/${cycleId}/assignments/${assignmentId}`,
       data
     ),
+  submitForReview: (cycleId: number, assignmentId: number, signoffNote?: string) =>
+    client.post<TestAssignment>(
+      `/test-cycles/${cycleId}/assignments/${assignmentId}/submit`,
+      { signoff_note: signoffNote ?? null }
+    ),
+  reviewerDecide: (
+    cycleId: number,
+    assignmentId: number,
+    outcome: "approved" | "returned" | "failed",
+    notes?: string,
+    returnReason?: string,
+  ) =>
+    client.post<TestAssignment>(
+      `/test-cycles/${cycleId}/assignments/${assignmentId}/decide`,
+      { outcome, notes: notes ?? null, return_reason: returnReason ?? null }
+    ),
+  reopenEvidence: (cycleId: number, assignmentId: number, reason: string) =>
+    client.post<TestAssignment>(
+      `/test-cycles/${cycleId}/assignments/${assignmentId}/reopen-evidence`,
+      { reason }
+    ),
 };
 
 // ── Evidence ───────────────────────────────────────────────────────────────
 export const evidenceApi = {
-  upload: (assignmentId: number, file: File, description: string) => {
+  list: (params?: import("@/types").EvidenceListParams) =>
+    client.get<import("@/types").PaginatedEvidenceResponse>("/evidence", { params }),
+  upload: (assignmentId: number, file: File, description: string, onProgress?: (pct: number) => void) => {
     const form = new FormData();
     form.append("assignment_id", String(assignmentId));
     form.append("description", description);
     form.append("file", file);
     return client.post("/evidence", form, {
       headers: { "Content-Type": "multipart/form-data" },
+      onUploadProgress: onProgress
+        ? (e) => { if (e.total) onProgress(Math.round((e.loaded * 100) / e.total)); }
+        : undefined,
     });
   },
+  download: (id: number) =>
+    client.get(`/evidence/${id}/download`, { responseType: "blob" }),
   delete: (id: number) => client.delete(`/evidence/${id}`),
 };
 
@@ -123,10 +203,18 @@ export const dashboardApi = {
 
 // ── Deficiencies ───────────────────────────────────────────────────────────
 export const deficiencyApi = {
-  list:   (status?: string) => client.get<Deficiency[]>("/deficiencies", { params: { status } }),
-  create: (data: unknown)   => client.post<Deficiency>("/deficiencies", data),
-  update: (id: number, data: unknown) => client.patch<Deficiency>(`/deficiencies/${id}`, data),
-  delete: (id: number)      => client.delete(`/deficiencies/${id}`),
+  list:          (status?: string)       => client.get<Deficiency[]>("/deficiencies", { params: { status } }),
+  create:        (data: unknown)         => client.post<Deficiency>("/deficiencies", data),
+  update:        (id: number, data: unknown) => client.patch<Deficiency>(`/deficiencies/${id}`, data),
+  delete:        (id: number)            => client.delete(`/deficiencies/${id}`),
+  promoteToRisk: (id: number, data: unknown) => client.post<Deficiency>(`/deficiencies/${id}/promote-to-risk`, data),
+  linkRisk:      (id: number, riskId: number) => client.post<Deficiency>(`/deficiencies/${id}/link-risk`, { risk_id: riskId }),
+  unlinkRisk:    (id: number)            => client.delete<Deficiency>(`/deficiencies/${id}/link-risk`),
+  // 4A: retest
+  createRetest:  (id: number, data: { cycle_id: number; assigned_to_user_id: number }) =>
+                   client.post<import("@/types").TestAssignment>(`/deficiencies/${id}/create-retest`, data),
+  waiveRetest:   (id: number, reason: string) =>
+                   client.post<Deficiency>(`/deficiencies/${id}/waive-retest`, { reason }),
 };
 
 // ── Assets ──────────────────────────────────────────────────────────────────
@@ -164,7 +252,12 @@ export async function downloadExport(path: string, filename: string) {
 
 // ── Risks ────────────────────────────────────────────────────────────────────
 export const risksApi = {
-  list:          ()                          => client.get<Risk[]>("/risks"),
+  list:          (params?: import("@/types").RiskListParams) =>
+                   client.get<import("@/types").PaginatedRisks>("/risks", {
+                     params: params
+                       ? { ...params, statuses: params.statuses?.join(",") }
+                       : undefined,
+                   }),
   get:           (id: number)                => client.get<Risk>(`/risks/${id}`),
   create:        (data: unknown)             => client.post<Risk>("/risks", data),
   update:        (id: number, data: unknown) => client.patch<Risk>(`/risks/${id}`, data),
@@ -172,6 +265,13 @@ export const risksApi = {
   linkControl:   (riskId: number, data: unknown) => client.post(`/risks/${riskId}/controls`, data),
   unlinkControl: (riskId: number, controlId: number) => client.delete(`/risks/${riskId}/controls/${controlId}`),
   forControl:    (controlId: number)         => client.get<Risk[]>(`/risks/by-control/${controlId}`),
+  bulkImport:    (file: File) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    return client.post<{ created: number; errors: { row: number; name: string; error: string }[]; created_items: { row: number; id: number; name: string }[] }>(
+      "/risks/bulk-import", fd, { headers: { "Content-Type": "multipart/form-data" } }
+    );
+  },
 };
 
 // ── Control Exceptions ───────────────────────────────────────────────────────
@@ -184,10 +284,12 @@ export const exceptionsApi = {
                 client.post<import("@/types").ControlException>("/exceptions", data),
   update:     (id: number, data: unknown) =>
                 client.patch<import("@/types").ControlException>(`/exceptions/${id}`, data),
-  approve:    (id: number, approverId: number, notes?: string) =>
-                client.post(`/exceptions/${id}/approve`, null, { params: { approver_id: approverId, approver_notes: notes } }),
-  reject:     (id: number, approverId: number, notes?: string) =>
-                client.post(`/exceptions/${id}/reject`, null, { params: { approver_id: approverId, approver_notes: notes } }),
+  approve:    (id: number, notes?: string) =>
+                client.post<import("@/types").ControlException>(`/exceptions/${id}/approve`, notes ? { notes } : null),
+  reject:     (id: number, rejectionReason: string) =>
+                client.post<import("@/types").ControlException>(`/exceptions/${id}/reject`, { rejection_reason: rejectionReason }),
+  resubmit:   (id: number) =>
+                client.post<import("@/types").ControlException>(`/exceptions/${id}/resubmit`),
   delete:     (id: number) =>
                 client.delete(`/exceptions/${id}`),
 };
@@ -227,7 +329,7 @@ export const riskReviewsApi = {
   listCycles:     () =>
     client.get<RiskReviewCycle[]>("/risk-reviews/cycles"),
 
-  createCycle:    (data: { label: string; cycle_type: string; year?: number; scope_note?: string; min_score?: number }) =>
+  createCycle:    (data: { label: string; cycle_type: string; year?: number; scope_note?: string; min_score?: number; severities?: string }) =>
     client.post<RiskReviewCycle>("/risk-reviews/cycles", data),
 
   getCycle:       (id: number) =>
@@ -235,6 +337,16 @@ export const riskReviewsApi = {
 
   closeCycle:     (id: number) =>
     client.patch<RiskReviewCycle>(`/risk-reviews/cycles/${id}/close`, {}),
+
+  populateCycle:  (id: number) =>
+    client.post<{ requests_created: number; skipped_no_owner: number }>(
+      `/risk-reviews/cycles/${id}/populate`
+    ),
+
+  notifyOwner:    (cycleId: number, ownerId: number) =>
+    client.post<{ email_sent: boolean; risks_count: number }>(
+      `/risk-reviews/cycles/${cycleId}/notify-owner/${ownerId}`
+    ),
 
   launchCycle:    (id: number) =>
     client.post<{ emails_sent: number; requests_created: number; skipped_no_owner: number }>(
@@ -254,6 +366,14 @@ export const riskReviewsApi = {
 
   riskHistory:    (riskId: number) =>
     client.get<RiskReviewUpdate[]>(`/risk-reviews/history/${riskId}`),
+
+  // 4C: GRC approval
+  acceptUpdate:   (updateId: number) =>
+    client.post<RiskReviewUpdate>(`/risk-reviews/updates/${updateId}/accept`),
+  challengeUpdate: (updateId: number, reason: string) =>
+    client.post<RiskReviewUpdate>(`/risk-reviews/updates/${updateId}/challenge`, { reason }),
+  respondToChallenge: (updateId: number, response: string) =>
+    client.post<RiskReviewUpdate>(`/risk-reviews/updates/${updateId}/respond`, { response }),
 };
 
 // ── Treatment Plans ────────────────────────────────────────────────────────
@@ -277,4 +397,53 @@ export const treatmentPlansApi = {
 export const auditApi = {
   list: (params?: { resource_type?: string; action?: string; actor_email?: string; resource_id?: number; limit?: number; offset?: number }) =>
     client.get<{ total: number; items: AuditLogEntry[] }>("/audit-logs", { params }),
+};
+
+// ── Deficiency Milestones ─────────────────────────────────────────────────────
+export const deficiencyMilestoneApi = {
+  list:   (deficiencyId: number) =>
+    client.get<DeficiencyMilestone[]>(`/deficiencies/${deficiencyId}/milestones`),
+  create: (deficiencyId: number, data: { title: string; due_date?: string; assignee_id?: number; notes?: string }) =>
+    client.post<DeficiencyMilestone>(`/deficiencies/${deficiencyId}/milestones`, data),
+  update: (deficiencyId: number, milestoneId: number, data: { title?: string; due_date?: string; assignee_id?: number; status?: string; notes?: string }) =>
+    client.patch<DeficiencyMilestone>(`/deficiencies/${deficiencyId}/milestones/${milestoneId}`, data),
+  delete: (deficiencyId: number, milestoneId: number) =>
+    client.delete(`/deficiencies/${deficiencyId}/milestones/${milestoneId}`),
+  requestExtension: (deficiencyId: number, milestoneId: number, reason: string) =>
+    client.post<DeficiencyMilestone>(
+      `/deficiencies/${deficiencyId}/milestones/${milestoneId}/request-extension`,
+      { reason }
+    ),
+  approveExtension: (deficiencyId: number, milestoneId: number, newDueDate: string) =>
+    client.post<DeficiencyMilestone>(
+      `/deficiencies/${deficiencyId}/milestones/${milestoneId}/approve-extension`,
+      { new_due_date: newDueDate }
+    ),
+  rejectExtension: (deficiencyId: number, milestoneId: number) =>
+    client.post<DeficiencyMilestone>(
+      `/deficiencies/${deficiencyId}/milestones/${milestoneId}/reject-extension`
+    ),
+};
+
+// ── Notifications ────────────────────────────────────────────────────────────
+export const notificationsApi = {
+  mine:     ()           => client.get<Notification[]>("/notifications/me"),
+  markRead: (id: number) => client.post(`/notifications/${id}/read`),
+};
+
+// ── My Work Queue ────────────────────────────────────────────────────────────
+export const myWorkApi = {
+  queue: () => client.get<import("@/types").WorkItem[]>("/my-work/queue"),
+};
+
+// ── Checklist ─────────────────────────────────────────────────────────────────
+export const checklistApi = {
+  list:   (assignmentId: number) =>
+    client.get<ChecklistItem[]>(`/assignments/${assignmentId}/checklist`),
+  create: (assignmentId: number, title: string, sortOrder = 0) =>
+    client.post<ChecklistItem>(`/assignments/${assignmentId}/checklist`, { title, sort_order: sortOrder }),
+  update: (assignmentId: number, itemId: number, data: { title?: string; completed?: boolean; sort_order?: number }) =>
+    client.patch<ChecklistItem>(`/assignments/${assignmentId}/checklist/${itemId}`, data),
+  delete: (assignmentId: number, itemId: number) =>
+    client.delete(`/assignments/${assignmentId}/checklist/${itemId}`),
 };

@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
-import MsalProviderWrapper from "@/components/MsalProviderWrapper";
+import TelemetryProvider from "@/components/TelemetryProvider";
 
 export const metadata: Metadata = {
   title: "GRC Control Testing Platform",
@@ -11,7 +11,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en" className="h-full">
       <body className="h-full">
-        <MsalProviderWrapper>{children}</MsalProviderWrapper>
+        {/* TelemetryProvider renders no UI — mounts global error/pageview handlers */}
+        <TelemetryProvider />
+        {children}
       </body>
     </html>
   );

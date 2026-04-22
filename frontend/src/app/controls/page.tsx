@@ -9,6 +9,8 @@ import { getUser } from "@/lib/auth";
 import type { Control } from "@/types";
 import { PlusIcon, MagnifyingGlassIcon, ArrowDownTrayIcon, ChevronUpIcon, ChevronDownIcon } from "@heroicons/react/24/outline";
 import { downloadExport } from "@/lib/api";
+import PageHeader from "@/components/ui/PageHeader";
+import Pagination from "@/components/ui/Pagination";
 
 type SortKey = "control_id" | "title" | "control_type" | "frequency" | "status";
 type SortDir = "asc" | "desc";
@@ -20,7 +22,6 @@ function SortIcon({ col, sortKey, sortDir }: { col: SortKey; sortKey: SortKey; s
     : <ChevronDownIcon className="w-3 h-3 text-brand-600 inline ml-1" />;
 }
 
-const PAGE_SIZES = [25, 50, 100];
 
 export default function ControlsPage() {
   const [controls, setControls]   = useState<Control[]>([]);
@@ -75,31 +76,30 @@ export default function ControlsPage() {
   return (
     <AppShell>
       <div className="max-w-6xl mx-auto space-y-6">
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">Control Library</h1>
-            <p className="text-gray-500 mt-1">{controls.length} controls · mapped to {frameworks.filter((f) => f !== "ALL").join(", ")}</p>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => downloadExport("/exports/controls", `control_library_${new Date().toISOString().slice(0,10)}.xlsx`)}
-              className="inline-flex items-center gap-2 border border-gray-200 text-gray-600 px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors"
-            >
-              <ArrowDownTrayIcon className="w-4 h-4" />
-              Export
-            </button>
-            {user?.role === "admin" && (
-              <Link
-                href="/controls/new"
-                className="inline-flex items-center gap-2 bg-brand-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-brand-700 transition-colors"
+        <PageHeader
+          title="Control Library"
+          subtitle={`${controls.length} controls · mapped to ${frameworks.filter((f) => f !== "ALL").join(", ")}`}
+          actions={
+            <>
+              <button
+                onClick={() => downloadExport("/exports/controls", `control_library_${new Date().toISOString().slice(0,10)}.xlsx`)}
+                className="inline-flex items-center gap-2 border border-gray-200 text-gray-600 px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors"
               >
-                <PlusIcon className="w-4 h-4" />
-                Add Control
-              </Link>
-            )}
-          </div>
-        </div>
+                <ArrowDownTrayIcon className="w-4 h-4" />
+                Export
+              </button>
+              {user?.role === "admin" && (
+                <Link
+                  href="/controls/new"
+                  className="inline-flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors"
+                >
+                  <PlusIcon className="w-4 h-4" />
+                  Add Control
+                </Link>
+              )}
+            </>
+          }
+        />
 
         {/* Filters */}
         <div className="flex flex-col sm:flex-row gap-3">
@@ -150,13 +150,13 @@ export default function ControlsPage() {
               <thead className="bg-gray-50 border-b border-gray-200">
                 <tr>
                   {([ ["control_id","ID"], ["title","Title"], ["control_type","Type"], ["frequency","Frequency"] ] as [SortKey,string][]).map(([key, label]) => (
-                    <th key={key} className="text-left px-4 py-3 font-medium text-gray-600 cursor-pointer select-none hover:text-gray-900 whitespace-nowrap"
+                    <th key={key} className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wider text-gray-400 cursor-pointer select-none hover:text-gray-600 whitespace-nowrap"
                         onClick={() => handleSort(key)}>
                       {label}<SortIcon col={key} sortKey={sortKey} sortDir={sortDir} />
                     </th>
                   ))}
-                  <th className="text-left px-4 py-3 font-medium text-gray-600">Frameworks</th>
-                  <th className="text-left px-4 py-3 font-medium text-gray-600 cursor-pointer select-none hover:text-gray-900 whitespace-nowrap"
+                  <th className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wider text-gray-400">Frameworks</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wider text-gray-400 cursor-pointer select-none hover:text-gray-600 whitespace-nowrap"
                       onClick={() => handleSort("status")}>
                     Status<SortIcon col="status" sortKey={sortKey} sortDir={sortDir} />
                   </th>
@@ -211,32 +211,14 @@ export default function ControlsPage() {
             </table>
           </div>
 
-          {/* Pagination */}
-          <div className="flex items-center justify-between text-sm text-gray-500">
-            <div className="flex items-center gap-2">
-              <span>Rows per page:</span>
-              {PAGE_SIZES.map(s => (
-                <button key={s} onClick={() => { setPageSize(s); setPage(1); }}
-                  className={`px-2 py-1 rounded text-xs font-medium transition-colors ${pageSize === s ? "bg-brand-600 text-white" : "bg-gray-100 hover:bg-gray-200 text-gray-700"}`}>
-                  {s}
-                </button>
-              ))}
-            </div>
-            <div className="flex items-center gap-3">
-              <span>{((page-1)*pageSize)+1}–{Math.min(page*pageSize, filtered.length)} of {filtered.length}</span>
-              <div className="flex gap-1">
-                <button onClick={() => setPage(1)} disabled={page === 1}
-                  className="px-2 py-1 rounded text-xs border border-gray-200 disabled:opacity-40 hover:bg-gray-50">«</button>
-                <button onClick={() => setPage(p => p - 1)} disabled={page === 1}
-                  className="px-2 py-1 rounded text-xs border border-gray-200 disabled:opacity-40 hover:bg-gray-50">‹</button>
-                <span className="px-2 py-1 text-xs">Page {page} of {totalPages}</span>
-                <button onClick={() => setPage(p => p + 1)} disabled={page === totalPages}
-                  className="px-2 py-1 rounded text-xs border border-gray-200 disabled:opacity-40 hover:bg-gray-50">›</button>
-                <button onClick={() => setPage(totalPages)} disabled={page === totalPages}
-                  className="px-2 py-1 rounded text-xs border border-gray-200 disabled:opacity-40 hover:bg-gray-50">»</button>
-              </div>
-            </div>
-          </div>
+          <Pagination
+            total={filtered.length}
+            page={page}
+            pageSize={pageSize}
+            onPageChange={setPage}
+            onPageSizeChange={(s) => { setPageSize(s); setPage(1); }}
+            itemLabel="control"
+          />
           </>
         )}
       </div>

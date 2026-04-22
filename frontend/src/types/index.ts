@@ -18,6 +18,9 @@ export interface User {
   job_title?: string;
   status?: string;
   last_login_at?: string;
+  deactivated_at?: string;
+  deactivated_by_user_id?: number;
+  deactivation_reason?: string;
 }
 
 export interface ControlMapping {
@@ -48,6 +51,9 @@ export interface Control {
   control_id: string;
   title: string;
   description?: string;
+  scf_question?: string;
+  scf_domain?: string;
+  scf_weight?: number;
   control_type?: string;
   frequency?: string;
   owner?: string;
@@ -71,6 +77,38 @@ export type AssignmentStatus =
 export type DeficiencyStatus = "open" | "in_remediation" | "remediated" | "risk_accepted";
 export type DeficiencySeverity = "critical" | "high" | "medium" | "low";
 
+export interface RiskSummary {
+  id: number;
+  name: string;
+  status: string;
+  likelihood: number;
+  impact: number;
+}
+
+export interface DeficiencyMilestone {
+  id: number;
+  deficiency_id: number;
+  title: string;
+  due_date?: string;
+  assignee_id?: number;
+  assignee?: User;
+  status: "open" | "completed" | "overdue";
+  completed_at?: string;
+  notes?: string;
+  created_at?: string;
+  // Loop 3: escalation
+  escalated_at?: string;
+  escalation_level: number;
+  // Loop 3: extension
+  extension_requested: boolean;
+  extension_request_reason?: string;
+  extension_requested_at?: string;
+  extension_approved?: boolean | null;
+  extension_approved_by_user_id?: number;
+  original_due_date?: string;
+  new_due_date?: string;
+}
+
 export interface Deficiency {
   id: number;
   assignment_id: number;
@@ -80,8 +118,24 @@ export interface Deficiency {
   remediation_plan?: string;
   status: DeficiencyStatus;
   due_date?: string;
+  linked_risk_id?: number;
+  linked_risk?: RiskSummary;
+  // remediation detail
+  root_cause?: string;
+  business_impact?: string;
+  remediation_owner?: string;
+  validation_notes?: string;
+  closure_evidence?: string;
+  closed_at?: string;
+  milestones: DeficiencyMilestone[];
   created_at: string;
   updated_at: string;
+  // 4A: retest
+  retest_required: boolean;
+  retest_assignment_id?: number;
+  retest_waived: boolean;
+  retest_waived_by_user_id?: number;
+  retest_waived_reason?: string;
 }
 
 export interface EvidenceSummary {
@@ -90,6 +144,82 @@ export interface EvidenceSummary {
   description?: string;
   uploaded_at: string;
   uploaded_by: number;
+}
+
+export interface EvidenceListItem {
+  id: number;
+  original_filename: string;
+  description?: string;
+  file_size?: number;
+  uploaded_at: string;
+  uploaded_by?: number;
+  uploader_name?: string;
+  uploader_email?: string;
+  assignment_id: number;
+  control_id?: string;
+  control_title?: string;
+  test_cycle_id?: number;
+  test_cycle_name?: string;
+}
+
+export interface PaginatedEvidenceResponse {
+  items: EvidenceListItem[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
+export interface EvidenceListParams {
+  q?: string;
+  test_cycle_id?: number[];
+  control_prefix?: string[];
+  date_from?: string;
+  date_to?: string;
+  sort_by?: "original_filename" | "uploaded_at" | "control" | "cycle";
+  sort_dir?: "asc" | "desc";
+  page?: number;
+  page_size?: number;
+}
+
+export interface ChecklistItem {
+  id: number;
+  assignment_id: number;
+  title: string;
+  completed: boolean;
+  completed_at?: string;
+  sort_order: number;
+  created_at?: string;
+}
+
+export interface AssignmentReworkLogEntry {
+  id: number;
+  assignment_id: number;
+  returned_by_user_id: number;
+  returned_by?: User;
+  return_reason: string;
+  returned_at: string;
+  rework_number: number;
+}
+
+export interface EvidenceRequestHistoryEntry {
+  id: number;
+  assignment_id: number;
+  action: "opened" | "fulfilled" | "reopened" | "cancelled";
+  actor_user_id?: number;
+  actor?: User;
+  reason?: string;
+  file_snapshot_reference?: string;
+  occurred_at: string;
+}
+
+export interface Notification {
+  id: number;
+  user_id: number;
+  message: string;
+  entity_type?: string;
+  entity_id?: number;
+  is_read: boolean;
+  created_at: string;
 }
 
 export interface TestAssignment {
@@ -101,6 +231,22 @@ export interface TestAssignment {
   status: AssignmentStatus;
   tester_notes?: string;
   reviewer_comments?: string;
+  // workpaper
+  testing_steps?: string;
+  sample_details?: string;
+  walkthrough_notes?: string;
+  conclusion?: string;
+  evidence_request_text?: string;
+  evidence_request_due_date?: string;
+  // signoff
+  tester_submitted_at?: string;
+  tester_submitted_by_id?: number;
+  tester_signoff_note?: string;
+  reviewer_decided_at?: string;
+  reviewer_decided_by_id?: number;
+  reviewer_outcome?: string;
+  tester_submitter?: User;
+  reviewer_decider?: User;
   created_at: string;
   updated_at: string;
   control?: Control;
@@ -108,6 +254,17 @@ export interface TestAssignment {
   reviewer?: User;
   evidence: EvidenceSummary[];
   deficiencies: Deficiency[];
+  checklist_items: ChecklistItem[];
+  // Loop 1: rework tracking
+  rework_count: number;
+  last_returned_at?: string;
+  last_return_reason?: string;
+  rework_log: AssignmentReworkLogEntry[];
+  // Loop 2: evidence reopen tracking
+  reopen_count: number;
+  last_reopened_at?: string;
+  last_reopen_reason?: string;
+  evidence_history: EvidenceRequestHistoryEntry[];
 }
 
 export const BRANDS = ["Inspire", "BWW", "DD", "BR", "JJ", "SON", "ARB"] as const;
@@ -129,6 +286,7 @@ export interface TestCycle extends TestCycleSummary {
   description?: string;
   created_by: number;
   created_at: string;
+  closed_at?: string;
   assignments: TestAssignment[];
   creator?: User;
 }
@@ -150,7 +308,7 @@ export interface ControlCycleHistory {
 
 // ── Risk Management Types ───────────────────────────────────────────────────
 
-export type AssetType = "application" | "database" | "infrastructure" | "network" | "data" | "physical" | "process" | "people";
+export type AssetType = "application" | "database" | "infrastructure" | "network" | "data" | "physical" | "process" | "people" | "cloud";
 export type Criticality = "critical" | "high" | "medium" | "low";
 
 export interface Asset {
@@ -178,7 +336,7 @@ export interface Threat {
 }
 
 export type RiskTreatment = "mitigate" | "accept" | "transfer" | "avoid";
-export type RiskStatus = "open" | "mitigated" | "accepted" | "transferred" | "closed";
+export type RiskStatus = "new" | "closed" | "managed_with_dates" | "managed_without_dates" | "unmanaged";
 
 export interface RiskControl {
   id: number;
@@ -203,14 +361,49 @@ export interface Risk {
   days_open: number;
   treatment?: RiskTreatment;
   status: RiskStatus;
+  managed_start_date?: string;
+  managed_end_date?: string;
   owner?: string;
   owner_id?: number;
   owner_user?: User;
+  parent_risk_id?: number;
+  parent_risk?: { id: number; name: string; status: string; likelihood: number; impact: number };
+  child_count: number;
   created_at: string;
   updated_at: string;
   asset?: Asset;
   threat?: Threat;
   controls: RiskControl[];
+  // Extended fields
+  category?:              string;
+  risk_type?:             string;
+  risk_theme?:            string;
+  source?:                string;
+  department?:            string;
+  stage?:                 string;
+  target_likelihood?:     number;
+  target_impact?:         number;
+  target_score?:          number;
+  date_identified?:       string;
+  date_closed?:           string;
+  closing_justification?: string;
+  regulatory_compliance?: string;
+}
+
+export interface RiskListParams {
+  status?: string;
+  statuses?: string[];
+  sort_by?: "name" | "likelihood" | "impact" | "status" | "created_at" | "updated_at";
+  sort_dir?: "asc" | "desc";
+  skip?: number;
+  limit?: number;
+}
+
+export interface PaginatedRisks {
+  items: Risk[];
+  total: number;
+  skip: number;
+  limit: number;
 }
 
 
@@ -246,6 +439,14 @@ export interface ControlException {
   requester?: { id: number; display_name: string; email: string; role: string };
   approver?:  { id: number; display_name: string; email: string; role: string };
   control?: { id: number; control_id: string; title: string; status: string };
+  // 4B: lifecycle
+  expires_at?: string;
+  expiry_notified_at?: string;
+  expired_at?: string;
+  rejection_reason?: string;
+  resubmission_count?: number;
+  parent_exception_id?: number;
+  decision_notified_at?: string;
 }
 
 // ── Approval Workflow Engine ─────────────────────────────────────────────────
@@ -347,9 +548,10 @@ export interface DashboardStats {
 
 // ── Risk Reviews ──────────────────────────────────────────────────────────────
 
-export type ReviewCycleType   = "jan" | "jul" | "quarterly" | "monthly" | "ad_hoc";
+export type ReviewCycleType   = "monthly" | "quarterly" | "yearly" | "ad_hoc";
 export type ReviewCycleStatus = "draft" | "active" | "closed";
 export type ReviewRequestStatus = "pending" | "updated" | "overdue";
+export type RiskSeverity = "low" | "medium" | "high" | "critical";
 
 export interface RiskReviewCycle {
   id:            number;
@@ -357,6 +559,7 @@ export interface RiskReviewCycle {
   cycle_type:    ReviewCycleType;
   year?:         number;
   min_score:     number;
+  severities?:   string;   // comma-sep: low,medium,high,critical
   status:        ReviewCycleStatus;
   scope_note?:   string;
   created_by?:   number;
@@ -431,6 +634,24 @@ export interface RiskReviewUpdate {
   notes?:               string;
   submitted_at:         string;
   submitter?:           User;
+  // 4C: GRC approval
+  grc_review_status?: "pending_review" | "accepted" | "challenged";
+  grc_reviewer_user_id?: number;
+  grc_challenge_reason?: string;
+  grc_reviewed_at?: string;
+  owner_challenge_response?: string;
+  owner_responded_at?: string;
+}
+
+export interface WorkItem {
+  item_type: string;
+  entity_id: number;
+  entity_type: string;
+  title: string;
+  due_date?: string;
+  days_overdue?: number;
+  urgency: "critical" | "high" | "medium" | "low";
+  url: string;
 }
 
 export interface AuditLogEntry {

@@ -6,3 +6,8 @@
   html { @apply h-full; }
   body { @apply h-full bg-gray-50 text-gray-900; }
 }
+
+@keyframes slideInRight {
+  from { transform: translateX(100%); }
+  to   { transform: translateX(0); }
+}

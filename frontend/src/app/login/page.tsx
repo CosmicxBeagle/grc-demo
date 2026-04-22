@@ -1,40 +1,32 @@
 "use client";
-import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useEffect, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import { authApi } from "@/lib/api";
-import { saveSession } from "@/lib/auth";
+import type { AuthConfigResponse } from "@/lib/api";
+import { saveDemoSession } from "@/lib/auth";
 import { ShieldCheckIcon } from "@heroicons/react/24/solid";
-
-// MSAL for Entra ID (loaded only when configured)
-import { msalEnabled, msalInstance, loginRequest } from "@/lib/msal-config";
-
-// ── Types ─────────────────────────────────────────────────────────────────────
-
-interface AuthConfig {
-  mode:           "demo" | "idp";
-  entra_enabled:  boolean;
-  okta_enabled:   boolean;
-  azure_client_id?: string;
-  azure_tenant_id?: string;
-  okta_domain?:     string;
-  okta_client_id?:  string;
-}
 
 // ── Demo users (local mode only) ──────────────────────────────────────────────
 
 const DEMO_USERS = [
-  { username: "alice@example.com", label: "Alice Admin",    role: "admin"       },
-  { username: "bob@example.com",   label: "Bob Tester",     role: "tester"      },
-  { username: "carol@example.com", label: "Carol Tester",   role: "tester"      },
-  { username: "dave@example.com",  label: "Dave Reviewer",  role: "reviewer"    },
-  { username: "erin@example.com",  label: "Erin Reviewer",  role: "reviewer"    },
+  { username: "alice@example.com", label: "Alice Admin",    role: "admin"        },
+  { username: "grace@example.com", label: "Grace Manager",  role: "grc_manager"  },
+  { username: "henry@example.com", label: "Henry Analyst",  role: "grc_analyst"  },
+  { username: "bob@example.com",   label: "Bob Tester",     role: "tester"       },
+  { username: "carol@example.com", label: "Carol Tester",   role: "tester"       },
+  { username: "dave@example.com",  label: "Dave Reviewer",  role: "reviewer"     },
+  { username: "erin@example.com",  label: "Erin Reviewer",  role: "reviewer"     },
+  { username: "frank@example.com", label: "Frank Owner",    role: "risk_owner"   },
 ];
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
-export default function LoginPage() {
-  const router = useRouter();
-  const [config,  setConfig]  = useState<AuthConfig | null>(null);
+function LoginPageInner() {
+  const searchParams   = useSearchParams();
+  const redirectTo     = searchParams.get("redirect") || "/dashboard";
+  const sessionExpired = searchParams.get("reason") === "expired";
+
+  const [config,  setConfig]  = useState<AuthConfigResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error,   setError]   = useState("");
 
@@ -42,19 +34,14 @@ export default function LoginPage() {
   useEffect(() => {
     authApi.config()
       .then(r => setConfig(r.data))
-      .catch(() => setConfig({ mode: "demo", entra_enabled: false, okta_enabled: false }));
-  }, []);
-
-  // Initialize MSAL when Entra is enabled
-  useEffect(() => {
-    if (msalEnabled && msalInstance) {
-      msalInstance.initialize().catch(console.error);
-    }
+      .catch(() => setConfig({ mode: "disabled", entra_enabled: false, okta_enabled: false, demo_enabled: false }));
   }, []);
 
   const finish = (token: string, user: any) => {
-    saveSession(token, user);
-    router.push("/dashboard");
+    saveDemoSession(token, user);
+    // Role-based landing: risk_owner → My Work, everyone else → requested page
+    const dest = user?.role === "risk_owner" ? "/my-work" : redirectTo;
+    window.location.href = dest; // hard navigate to flush any stale state
   };
 
   // ── Demo login ────────────────────────────────────────────────────────────
@@ -72,66 +59,20 @@ export default function LoginPage() {
     }
   };
 
-  // ── Entra ID login ────────────────────────────────────────────────────────
-
-  const entraLogin = async () => {
-    if (!msalInstance) return;
-    setLoading(true);
-    setError("");
-    try {
-      const result = await msalInstance.loginPopup(loginRequest);
-      const res = await authApi.azureLogin(result.accessToken);
-      finish(res.data.access_token, res.data.user);
-    } catch (err: any) {
-      if (err?.errorCode === "user_cancelled") {
-        setError("Sign-in was cancelled.");
-      } else {
-        setError("Microsoft sign-in failed.");
-        console.error(err);
-      }
-    } finally {
-      setLoading(false);
-    }
-  };
-
   // ── Okta login ────────────────────────────────────────────────────────────
+  // Backend handles the full OIDC redirect flow (GET /auth/okta/login).
+  // Entra ID is federated through Okta — no separate Microsoft/MSAL flow needed.
+  // After Okta validates the user, it sets a session cookie and redirects back.
 
-  const oktaLogin = async () => {
-    if (!config?.okta_domain || !config?.okta_client_id) return;
-    setLoading(true);
-    setError("");
-    try {
-      // Dynamic import so @okta/okta-auth-js is only loaded when needed
-      const { OktaAuth } = await import("@okta/okta-auth-js");
-      const oktaAuth = new OktaAuth({
-        issuer:   `https://${config.okta_domain}/oauth2/default`,
-        clientId: config.okta_client_id,
-        redirectUri: window.location.origin + "/login/okta-callback",
-        scopes: ["openid", "profile", "email"],
-      });
-      // Use popup flow (same UX as MSAL)
-      const tokens = await oktaAuth.token.getWithPopup({
-        responseType: ["token", "id_token"],
-      });
-      const accessToken = tokens.tokens.accessToken?.accessToken;
-      if (!accessToken) throw new Error("No access token returned");
-      const res = await authApi.oktaLogin(accessToken);
-      finish(res.data.access_token, res.data.user);
-    } catch (err: any) {
-      if (err?.name === "OAuthError" && err?.message?.includes("cancel")) {
-        setError("Sign-in was cancelled.");
-      } else {
-        setError("Okta sign-in failed.");
-        console.error(err);
-      }
-    } finally {
-      setLoading(false);
-    }
+  const oktaLogin = () => {
+    const returnTo = encodeURIComponent(redirectTo);
+    window.location.href = `${process.env.NEXT_PUBLIC_API_URL ?? "/api/v1"}/auth/okta/login?return_to=${returnTo}`;
   };
 
   // ── Render ────────────────────────────────────────────────────────────────
 
-  const isIdpMode = config?.mode === "idp";
+  const isIdpMode  = config?.mode === "idp";
+  const isDemoMode = config?.mode === "demo";
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-brand-900">
@@ -144,54 +85,48 @@ export default function LoginPage() {
           <p className="text-sm text-gray-500 mt-1">Control Testing &amp; Compliance</p>
         </div>
 
+        {/* Session expired banner */}
+        {sessionExpired && (
+          <div className="mb-6 flex items-center gap-2 rounded-lg bg-amber-50 border border-amber-200 px-4 py-3 text-sm text-amber-800">
+            <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            Your session expired. Please sign in again.
+          </div>
+        )}
+
         {/* Loading config */}
         {!config && (
           <p className="text-sm text-center text-gray-400">Loading…</p>
         )}
 
-        {/* IdP mode — show SSO buttons */}
+        {/* IdP mode — single Okta button (covers Entra via federation) */}
         {config && isIdpMode && (
           <div className="space-y-3">
             <p className="text-sm text-center text-gray-500 mb-4">
               Sign in with your corporate account
             </p>
-
-            {config.entra_enabled && (
-              <button
-                onClick={entraLogin}
-                disabled={loading}
-                className="w-full flex items-center justify-center gap-3 rounded-lg border border-gray-300 px-4 py-3 hover:bg-gray-50 transition-colors disabled:opacity-50 font-medium text-sm"
-              >
-                {/* Microsoft logo */}
-                <svg width="20" height="20" viewBox="0 0 21 21" aria-hidden="true">
-                  <rect x="1"  y="1"  width="9" height="9" fill="#f25022"/>
-                  <rect x="11" y="1"  width="9" height="9" fill="#7fba00"/>
-                  <rect x="1"  y="11" width="9" height="9" fill="#00a4ef"/>
-                  <rect x="11" y="11" width="9" height="9" fill="#ffb900"/>
-                </svg>
-                {loading ? "Signing in…" : "Sign in with Microsoft"}
-              </button>
-            )}
-
-            {config.okta_enabled && (
-              <button
-                onClick={oktaLogin}
-                disabled={loading}
-                className="w-full flex items-center justify-center gap-3 rounded-lg border border-gray-300 px-4 py-3 hover:bg-gray-50 transition-colors disabled:opacity-50 font-medium text-sm"
-              >
-                {/* Okta logo mark */}
-                <svg width="20" height="20" viewBox="0 0 40 40" aria-hidden="true">
-                  <circle cx="20" cy="20" r="20" fill="#007DC1"/>
-                  <circle cx="20" cy="20" r="9" fill="white"/>
-                </svg>
-                {loading ? "Signing in…" : "Sign in with Okta"}
-              </button>
-            )}
+            <button
+              onClick={oktaLogin}
+              disabled={loading}
+              className="w-full flex items-center justify-center gap-3 rounded-lg border border-gray-300 px-4 py-3 hover:bg-gray-50 transition-colors disabled:opacity-50 font-medium text-sm"
+            >
+              {/* Okta logo mark */}
+              <svg width="20" height="20" viewBox="0 0 40 40" aria-hidden="true">
+                <circle cx="20" cy="20" r="20" fill="#007DC1"/>
+                <circle cx="20" cy="20" r="9" fill="white"/>
+              </svg>
+              {loading ? "Signing in…" : "Sign in with your company account"}
+            </button>
+            <p className="text-xs text-center text-gray-400 mt-2">
+              Uses your existing company credentials
+            </p>
           </div>
         )}
 
-        {/* Demo mode — show user picker */}
-        {config && !isIdpMode && (
+        {/* Demo mode — user picker */}
+        {config && isDemoMode && (
           <>
             <p className="text-sm text-center text-gray-500 mb-6">
               Select a demo user to log in — no password required
@@ -210,8 +145,8 @@ export default function LoginPage() {
                     </div>
                     <span className="font-medium text-sm">{u.label}</span>
                   </div>
-                  <span className="text-xs capitalize px-2 py-0.5 rounded-full bg-gray-100 text-gray-500">
-                    {u.role}
+                  <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-500">
+                    {u.role.replace(/_/g, " ")}
                   </span>
                 </button>
               ))}
@@ -222,10 +157,24 @@ export default function LoginPage() {
           </>
         )}
 
+        {config && config.mode === "disabled" && (
+          <p className="text-sm text-center text-gray-500">
+            Authentication is not configured. Contact your administrator.
+          </p>
+        )}
+
         {error && (
           <p className="mt-4 text-sm text-red-600 text-center">{error}</p>
         )}
       </div>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense>
+      <LoginPageInner />
+    </Suspense>
   );
 }

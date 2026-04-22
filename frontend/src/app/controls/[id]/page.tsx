@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import AppShell from "@/components/AppShell";
+import { useUnsavedChanges } from "@/hooks/useUnsavedChanges";
 import StatusBadge from "@/components/StatusBadge";
 import FrameworkBadge from "@/components/FrameworkBadge";
 import { controlsApi, risksApi, exceptionsApi } from "@/lib/api";
@@ -39,18 +40,32 @@ export default function ControlDetailPage() {
   const { id }   = useParams<{ id: string }>();
   const router   = useRouter();
   const user     = getUser();
+  const isAdmin  = user?.role === "admin";
+  const canEdit  = user?.role === "admin" || user?.role === "grc_manager" || user?.role === "grc_analyst";
   const [ctrl, setCtrl]       = useState<Control | null>(null);
   const [cycles, setCycles]   = useState<ControlCycleHistory[]>([]);
   const [linkedRisks, setLinkedRisks] = useState<Risk[]>([]);
   const [controlExceptions, setControlExceptions] = useState<ControlException[]>([]);
   const [editing, setEditing] = useState(false);
+  const [dirty, setDirty]     = useState(false);
   const [form, setForm]       = useState({ control_id: "", title: "", description: "", owner: "", status: "active", control_type: "", frequency: "", sox_in_scope: false, sox_itgc_domain: "", sox_systems: "", sox_assertions: "" });
   const [mappings, setMappings] = useState<{ framework: string; framework_version: string; framework_ref: string; framework_description: string }[]>([]);
 
-  const addMapping = () => setMappings(prev => [...prev, { framework: "", framework_version: "", framework_ref: "", framework_description: "" }]);
-  const removeMapping = (i: number) => setMappings(prev => prev.filter((_, idx) => idx !== i));
-  const updateMapping = (i: number, field: string, value: string) =>
+  // Warn on tab-close / refresh when editing with unsaved changes
+  useUnsavedChanges(editing && dirty);
+
+  // Wrapper for user-initiated form changes — also marks the form dirty
+  const updateForm = (patch: Partial<typeof form>) => {
+    setForm(f => ({ ...f, ...patch }));
+    setDirty(true);
+  };
+
+  const addMapping = () => { setMappings(prev => [...prev, { framework: "", framework_version: "", framework_ref: "", framework_description: "" }]); setDirty(true); };
+  const removeMapping = (i: number) => { setMappings(prev => prev.filter((_, idx) => idx !== i)); setDirty(true); };
+  const updateMapping = (i: number, field: string, value: string) => {
     setMappings(prev => prev.map((m, idx) => idx === i ? { ...m, [field]: value } : m));
+    setDirty(true);
+  };
 
   useEffect(() => {
     if (id === "new") { setEditing(true); setMappings([]); return; }
@@ -88,6 +103,7 @@ export default function ControlDetailPage() {
     const validMappings = mappings.filter(m => m.framework && m.framework_ref);
     if (id === "new") {
       const r = await controlsApi.create({ ...form, mappings: validMappings });
+      setDirty(false);
       router.push(`/controls/${r.data.id}`);
     } else {
       await controlsApi.update(Number(id), { ...form, mappings: validMappings });
@@ -99,8 +115,15 @@ export default function ControlDetailPage() {
         framework_ref: m.framework_ref,
         framework_description: m.framework_description ?? "",
       })));
+      setDirty(false);
       setEditing(false);
     }
+  };
+
+  const cancelEdit = () => {
+    if (dirty && !confirm("Discard unsaved changes?")) return;
+    setDirty(false);
+    setEditing(false);
   };
 
   const remove = async () => {
@@ -132,7 +155,7 @@ export default function ControlDetailPage() {
                   className="font-mono text-brand-600 text-sm mb-1 border-b border-brand-300 focus:outline-none"
                   placeholder="Control ID (e.g. CTL-001)"
                   value={form.control_id}
-                  onChange={(e) => setForm({ ...form, control_id: e.target.value })}
+                  onChange={(e) => updateForm({ control_id: e.target.value })}
                 />
               ) : (
                 <p className="font-mono text-brand-600 text-sm mb-1">{ctrl?.control_id}</p>
@@ -141,13 +164,13 @@ export default function ControlDetailPage() {
                 <input
                   className="text-xl font-bold border-b border-brand-400 focus:outline-none w-full"
                   value={form.title}
-                  onChange={(e) => setForm({ ...form, title: e.target.value })}
+                  onChange={(e) => updateForm({ title: e.target.value })}
                 />
               ) : (
                 <h1 className="text-xl font-bold text-gray-900">{ctrl?.title}</h1>
               )}
             </div>
-            {user?.role === "admin" && ctrl && !editing && (
+            {canEdit && ctrl && !editing && (
               <div className="flex gap-2">
                 <button
                   onClick={() => setEditing(true)}
@@ -172,7 +195,7 @@ export default function ControlDetailPage() {
                   <CheckIcon className="w-4 h-4" /> Save
                 </button>
                 <button
-                  onClick={() => setEditing(false)}
+                  onClick={cancelEdit}
                   className="flex items-center gap-1.5 text-sm text-gray-600 border border-gray-200 rounded-lg px-3 py-1.5"
                 >
                   <XMarkIcon className="w-4 h-4" /> Cancel
@@ -187,7 +210,7 @@ export default function ControlDetailPage() {
               {editing ? (
                 <select
                   value={form.status}
-                  onChange={(e) => setForm({ ...form, status: e.target.value })}
+                  onChange={(e) => updateForm({ status: e.target.value })}
                   className="border border-gray-200 rounded px-2 py-1 text-sm"
                 >
                   <option value="active">Active</option>
@@ -202,7 +225,7 @@ export default function ControlDetailPage() {
               {editing ? (
                 <select
                   value={form.control_type}
-                  onChange={(e) => setForm({ ...form, control_type: e.target.value })}
+                  onChange={(e) => updateForm({ control_type: e.target.value })}
                   className="border border-gray-200 rounded px-2 py-1 text-sm"
                 >
                   <option value="">—</option>
@@ -219,7 +242,7 @@ export default function ControlDetailPage() {
               {editing ? (
                 <select
                   value={form.frequency}
-                  onChange={(e) => setForm({ ...form, frequency: e.target.value })}
+                  onChange={(e) => updateForm({ frequency: e.target.value })}
                   className="border border-gray-200 rounded px-2 py-1 text-sm"
                 >
                   <option value="">—</option>
@@ -238,7 +261,7 @@ export default function ControlDetailPage() {
                 <input
                   className="border-b border-gray-300 text-sm focus:outline-none"
                   value={form.owner}
-                  onChange={(e) => setForm({ ...form, owner: e.target.value })}
+                  onChange={(e) => updateForm({ owner: e.target.value })}
                 />
               ) : (
                 <p className="text-sm">{ctrl?.owner ?? "—"}</p>
@@ -250,6 +273,12 @@ export default function ControlDetailPage() {
                 {frameworks.map((f) => <FrameworkBadge key={f} framework={f} />)}
               </div>
             </div>
+            {ctrl?.scf_domain && (
+              <div>
+                <p className="text-xs text-gray-400 mb-1">SCF Domain</p>
+                <p className="text-sm text-gray-700">{ctrl.scf_domain}</p>
+              </div>
+            )}
           </div>
 
           <div className="mb-6">
@@ -259,12 +288,40 @@ export default function ControlDetailPage() {
                 rows={4}
                 className="w-full border border-gray-200 rounded-lg p-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
                 value={form.description}
-                onChange={(e) => setForm({ ...form, description: e.target.value })}
+                onChange={(e) => updateForm({ description: e.target.value })}
               />
             ) : (
               <p className="text-sm text-gray-700">{ctrl?.description ?? "No description."}</p>
             )}
           </div>
+
+          {/* SCF Control Details */}
+          {!editing && (ctrl?.scf_question || ctrl?.scf_weight != null) && (
+            <div className="mb-6 border border-indigo-100 bg-indigo-50/40 rounded-lg p-4 space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <h2 className="text-sm font-semibold text-indigo-800">SCF Control Details</h2>
+                {ctrl.scf_weight != null && (
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className="text-xs text-indigo-600 font-medium">Relative Weight</span>
+                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold ${
+                      ctrl.scf_weight >= 4 ? "bg-indigo-600 text-white" :
+                      ctrl.scf_weight >= 3 ? "bg-indigo-400 text-white" :
+                      ctrl.scf_weight >= 2 ? "bg-indigo-200 text-indigo-800" :
+                      "bg-gray-100 text-gray-600"
+                    }`}>
+                      {ctrl.scf_weight}
+                    </span>
+                  </div>
+                )}
+              </div>
+              {ctrl.scf_question && (
+                <div>
+                  <p className="text-xs text-indigo-600 font-medium mb-1">Control Question</p>
+                  <p className="text-sm text-gray-700 leading-relaxed">{ctrl.scf_question}</p>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* SOX ITGC Scoping */}
           <div className="mb-6 border border-gray-200 rounded-lg p-4">
@@ -275,7 +332,7 @@ export default function ControlDetailPage() {
                   <input
                     type="checkbox"
                     checked={form.sox_in_scope}
-                    onChange={(e) => setForm({ ...form, sox_in_scope: e.target.checked })}
+                    onChange={(e) => updateForm({ sox_in_scope: e.target.checked })}
                     className="w-4 h-4 accent-brand-600"
                   />
                   <span className="text-sm text-gray-700">In Scope for SOX</span>
@@ -297,7 +354,7 @@ export default function ControlDetailPage() {
                 {editing ? (
                   <select
                     value={form.sox_itgc_domain}
-                    onChange={(e) => setForm({ ...form, sox_itgc_domain: e.target.value })}
+                    onChange={(e) => updateForm({ sox_itgc_domain: e.target.value })}
                     className="border border-gray-200 rounded px-2 py-1 text-sm w-full"
                   >
                     <option value="">—</option>
@@ -318,7 +375,7 @@ export default function ControlDetailPage() {
                     className="border border-gray-200 rounded px-2 py-1 text-sm w-full"
                     placeholder="e.g. SAP, Oracle, Active Directory"
                     value={form.sox_systems}
-                    onChange={(e) => setForm({ ...form, sox_systems: e.target.value })}
+                    onChange={(e) => updateForm({ sox_systems: e.target.value })}
                   />
                 ) : (
                   <p className="text-sm">{ctrl?.sox_systems || "—"}</p>
@@ -334,7 +391,7 @@ export default function ControlDetailPage() {
                       const toggle = () => {
                         const current = (form.sox_assertions ?? "").split(",").map((s) => s.trim()).filter(Boolean);
                         const next = selected ? current.filter((x) => x !== a) : [...current, a];
-                        setForm({ ...form, sox_assertions: next.join(", ") });
+                        updateForm({ sox_assertions: next.join(", ") });
                       };
                       return (
                         <button
@@ -371,8 +428,15 @@ export default function ControlDetailPage() {
           {/* Framework mappings */}
           <div>
             <div className="flex items-center justify-between mb-3">
-              <h2 className="text-sm font-semibold text-gray-700">Framework Mappings</h2>
-              {editing && (
+              <div className="flex items-center gap-2">
+                <h2 className="text-sm font-semibold text-gray-700">Framework Mappings</h2>
+                {editing && !isAdmin && (
+                  <span className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded px-2 py-0.5">
+                    Admin-only — read only
+                  </span>
+                )}
+              </div>
+              {editing && isAdmin && (
                 <button
                   type="button"
                   onClick={addMapping}
@@ -386,7 +450,7 @@ export default function ControlDetailPage() {
             {editing ? (
               <div className="space-y-3">
                 {mappings.length === 0 && (
-                  <p className="text-sm text-gray-400 italic">No framework mappings yet. Click &quot;Add Mapping&quot; to associate this control with a framework.</p>
+                  <p className="text-sm text-gray-400 italic">No framework mappings yet.{isAdmin ? " Click \"Add Mapping\" to associate this control with a framework." : ""}</p>
                 )}
                 {mappings.map((m, i) => (
                   <div key={i} className="grid grid-cols-12 gap-2 items-start border border-gray-200 rounded-lg p-3 bg-gray-50">
@@ -437,15 +501,17 @@ export default function ControlDetailPage() {
                         className="w-full border border-gray-200 rounded px-2 py-1.5 text-sm"
                       />
                     </div>
-                    <div className="col-span-1 flex items-end pb-1.5">
-                      <button
-                        type="button"
-                        onClick={() => removeMapping(i)}
-                        className="text-red-400 hover:text-red-600"
-                      >
-                        <XMarkIcon className="w-4 h-4" />
-                      </button>
-                    </div>
+                    {isAdmin && (
+                      <div className="col-span-1 flex items-end pb-1.5">
+                        <button
+                          type="button"
+                          onClick={() => removeMapping(i)}
+                          className="text-red-400 hover:text-red-600"
+                        >
+                          <XMarkIcon className="w-4 h-4" />
+                        </button>
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>

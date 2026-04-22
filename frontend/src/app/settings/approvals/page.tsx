@@ -2,10 +2,11 @@
 import { useEffect, useState } from "react";
 import AppShell from "@/components/AppShell";
 import { approvalsApi, usersApi } from "@/lib/api";
+import { getUser } from "@/lib/auth";
 import type { ApprovalPolicy, User } from "@/types";
 import {
   PlusIcon, TrashIcon, PencilSquareIcon, CheckBadgeIcon,
-  ChevronUpIcon, ChevronDownIcon,
+  ChevronUpIcon, ChevronDownIcon, ShieldCheckIcon,
 } from "@heroicons/react/24/outline";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -48,6 +49,7 @@ const ENTITY_TYPES = [
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
 export default function ApprovalSettingsPage() {
+  const currentUser = getUser();
   const [policies, setPolicies] = useState<ApprovalPolicy[]>([]);
   const [users,    setUsers]    = useState<User[]>([]);
   const [loading,  setLoading]  = useState(true);
@@ -56,6 +58,19 @@ export default function ApprovalSettingsPage() {
   const [draft,    setDraft]    = useState<PolicyDraft>(BLANK_POLICY);
   const [saving,   setSaving]   = useState(false);
   const [error,    setError]    = useState("");
+
+  // ── Access guard ─────────────────────────────────────────────────────────
+  if (currentUser?.role !== "admin") {
+    return (
+      <AppShell>
+        <div className="flex flex-col items-center justify-center h-64 text-center gap-3">
+          <ShieldCheckIcon className="w-12 h-12 text-gray-300" />
+          <h2 className="text-lg font-semibold text-gray-700">Admin access required</h2>
+          <p className="text-sm text-gray-400">Approval policy configuration is restricted to administrators.</p>
+        </div>
+      </AppShell>
+    );
+  }
 
   useEffect(() => {
     Promise.all([approvalsApi.listPolicies(), usersApi.list()])

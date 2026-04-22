@@ -1,0 +1,1340 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>GRC Platform – Architecture & UX Guide</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<style>
+  :root {
+    --bg:      #07101e;
+    --card:    #0f1a2e;
+    --card2:   #111f35;
+    --border:  #1e2f4a;
+    --border2: #243650;
+    --text:    #e2e8f0;
+    --muted:   #64748b;
+    --blue:    #60a5fa;
+    --blue2:   #93c5fd;
+    --indigo:  #818cf8;
+    --teal:    #2dd4bf;
+    --green:   #4ade80;
+    --amber:   #fbbf24;
+    --red:     #f87171;
+    --violet:  #c084fc;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    font-size: 14px;
+    line-height: 1.6;
+    padding: 0 0 80px;
+  }
+
+  /* ── HERO ── */
+  .hero {
+    background: linear-gradient(135deg, #0c1a30 0%, #0f1e3a 50%, #0a1525 100%);
+    border-bottom: 1px solid var(--border);
+    padding: 52px 40px 44px;
+    text-align: center;
+  }
+  .hero-badge {
+    display: inline-block;
+    background: #1e3a5f;
+    color: var(--blue2);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    padding: 4px 14px;
+    border-radius: 20px;
+    border: 1px solid #2d4f7c;
+    margin-bottom: 18px;
+  }
+  .hero h1 {
+    font-size: 30px;
+    font-weight: 800;
+    color: #f1f5f9;
+    letter-spacing: -.02em;
+    margin-bottom: 10px;
+  }
+  .hero p {
+    font-size: 15px;
+    color: var(--muted);
+    max-width: 680px;
+    margin: 0 auto 28px;
+    line-height: 1.7;
+  }
+  .hero-chips { display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; }
+  .hc {
+    padding: 5px 14px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 600;
+    border: 1px solid;
+  }
+  .hc-blue   { background: #1e3a5f; color: var(--blue2);  border-color: #2d4f7c; }
+  .hc-green  { background: #052e16; color: var(--green);   border-color: #14532d; }
+  .hc-indigo { background: #1e1b4b; color: var(--indigo);  border-color: #312e81; }
+  .hc-teal   { background: #042f2e; color: var(--teal);    border-color: #134e4a; }
+
+  /* ── TOC / NAV ── */
+  .toc {
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    background: #0b1525cc;
+    backdrop-filter: blur(8px);
+    border-bottom: 1px solid var(--border);
+    padding: 0 40px;
+    display: flex;
+    gap: 0;
+    overflow-x: auto;
+  }
+  .toc a {
+    padding: 12px 16px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--muted);
+    text-decoration: none;
+    white-space: nowrap;
+    border-bottom: 2px solid transparent;
+    transition: color .15s, border-color .15s;
+  }
+  .toc a:hover { color: var(--blue2); border-bottom-color: var(--blue); }
+
+  /* ── LAYOUT ── */
+  .content { max-width: 1100px; margin: 0 auto; padding: 40px 32px; }
+
+  /* ── SECTION ── */
+  .section { margin-bottom: 64px; }
+  .section-header {
+    display: flex;
+    align-items: flex-start;
+    gap: 16px;
+    margin-bottom: 24px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  .section-icon {
+    width: 44px; height: 44px;
+    border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 20px;
+    flex-shrink: 0;
+    margin-top: 2px;
+  }
+  .section-header h2 { font-size: 20px; font-weight: 700; color: #f1f5f9; margin-bottom: 4px; }
+  .section-header p  { font-size: 13px; color: var(--muted); max-width: 680px; line-height: 1.6; }
+
+  /* ── CALLOUT BOX ── */
+  .callout {
+    border-radius: 10px;
+    padding: 16px 20px;
+    margin-bottom: 20px;
+    display: flex;
+    gap: 14px;
+    align-items: flex-start;
+    border: 1px solid;
+    font-size: 13px;
+  }
+  .callout-icon { font-size: 18px; flex-shrink: 0; margin-top: 1px; }
+  .callout-title { font-weight: 700; margin-bottom: 3px; }
+  .callout-body  { color: var(--muted); line-height: 1.6; }
+  .callout.blue   { background: #0d2040; border-color: #1e4080; }
+  .callout.blue   .callout-title { color: var(--blue2); }
+  .callout.green  { background: #031a0d; border-color: #14532d; }
+  .callout.green  .callout-title { color: var(--green); }
+  .callout.amber  { background: #1c1206; border-color: #78350f; }
+  .callout.amber  .callout-title { color: var(--amber); }
+  .callout.indigo { background: #12103a; border-color: #312e81; }
+  .callout.indigo .callout-title { color: var(--indigo); }
+
+  /* ── MERMAID CARD ── */
+  .chart-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 28px 20px;
+    margin-bottom: 20px;
+    overflow-x: auto;
+  }
+  .chart-label {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .1em;
+    color: var(--muted);
+    margin-bottom: 18px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .chart-label::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+  .mermaid { display: flex; justify-content: center; }
+  .mermaid svg { max-width: 100%; height: auto; }
+
+  /* ── PAGE GRID ── */
+  .page-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; }
+  .page-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+  }
+  .page-card-top {
+    padding: 12px 16px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .page-card-top .emoji { font-size: 18px; }
+  .page-card-top .label { font-weight: 700; font-size: 14px; flex: 1; }
+  .page-card-top .route { font-size: 10px; font-family: monospace; opacity: .6; }
+  .page-card-body { padding: 12px 16px; border-top: 1px solid var(--border); }
+  .page-card-body .plain { font-size: 13px; color: var(--muted); margin-bottom: 10px; line-height: 1.6; }
+  .page-card-body ul { padding-left: 0; list-style: none; }
+  .page-card-body li {
+    font-size: 12px;
+    color: #94a3b8;
+    padding: 3px 0;
+    padding-left: 14px;
+    position: relative;
+  }
+  .page-card-body li::before { content: '›'; position: absolute; left: 0; color: var(--muted); }
+  .page-card-body .tag {
+    display: inline-block;
+    font-size: 9px;
+    font-weight: 700;
+    padding: 1px 6px;
+    border-radius: 10px;
+    margin-left: 4px;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+  }
+  .tag-new     { background: #052e16; color: #86efac; }
+  .tag-updated { background: #1e3a5f; color: #93c5fd; }
+  .tag-admin   { background: #1e1040; color: #c4b5fd; }
+
+  /* card accent colors */
+  .pc-blue   .page-card-top { background: #0d2040; }
+  .pc-blue   .page-card-top .label { color: var(--blue2); }
+  .pc-green  .page-card-top { background: #031a0d; }
+  .pc-green  .page-card-top .label { color: var(--green); }
+  .pc-teal   .page-card-top { background: #042f2e; }
+  .pc-teal   .page-card-top .label { color: var(--teal); }
+  .pc-amber  .page-card-top { background: #1c1206; }
+  .pc-amber  .page-card-top .label { color: var(--amber); }
+  .pc-red    .page-card-top { background: #1c0606; }
+  .pc-red    .page-card-top .label { color: var(--red); }
+  .pc-violet .page-card-top { background: #1a0f35; }
+  .pc-violet .page-card-top .label { color: var(--violet); }
+  .pc-indigo .page-card-top { background: #12103a; }
+  .pc-indigo .page-card-top .label { color: var(--indigo); }
+  .pc-slate  .page-card-top { background: #141e2e; }
+  .pc-slate  .page-card-top .label { color: #cbd5e1; }
+
+  /* ── ROLE TABLE ── */
+  .role-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .role-table th, .role-table td {
+    padding: 10px 14px;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+  }
+  .role-table th { color: var(--muted); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: .08em; }
+  .role-table tr:last-child td { border-bottom: none; }
+  .role-table tr:hover td { background: var(--card2); }
+  .check { color: var(--green); font-weight: 700; }
+  .partial { color: var(--amber); font-weight: 700; }
+  .cross { color: var(--muted); }
+  .role-badge {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: 700;
+  }
+  .rb-admin   { background: #1e1040; color: var(--violet); }
+  .rb-manager { background: #0d2040; color: var(--blue2); }
+  .rb-analyst { background: #042f2e; color: var(--teal); }
+  .rb-auditor { background: #1c1206; color: var(--amber); }
+  .rb-owner   { background: #031a0d; color: var(--green); }
+
+  /* ── WORKFLOW STEPS ── */
+  .workflow { display: flex; flex-direction: column; gap: 0; }
+  .wf-step {
+    display: flex;
+    gap: 18px;
+    align-items: flex-start;
+    padding: 16px 0;
+    border-bottom: 1px solid var(--border);
+    position: relative;
+  }
+  .wf-step:last-child { border-bottom: none; }
+  .wf-num {
+    width: 32px; height: 32px;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 13px;
+    font-weight: 800;
+    flex-shrink: 0;
+    margin-top: 1px;
+  }
+  .wf-content { flex: 1; }
+  .wf-title   { font-weight: 700; font-size: 14px; margin-bottom: 4px; }
+  .wf-body    { font-size: 13px; color: var(--muted); line-height: 1.6; }
+  .wf-who {
+    font-size: 11px;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 10px;
+    display: inline-block;
+    margin-top: 6px;
+  }
+
+  /* ── TECH STACK TABLE ── */
+  .stack-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .stack-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 18px;
+  }
+  .stack-card h3 { font-size: 13px; font-weight: 700; color: var(--blue2); margin-bottom: 12px; }
+  .stack-item { display: flex; justify-content: space-between; align-items: baseline; padding: 5px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+  .stack-item:last-child { border-bottom: none; }
+  .stack-item .what { color: var(--text); }
+  .stack-item .why  { color: var(--muted); font-size: 12px; text-align: right; max-width: 60%; }
+
+  hr.divider { border: none; border-top: 1px solid var(--border); margin: 32px 0; }
+
+  .legend { display: flex; gap: 20px; flex-wrap: wrap; font-size: 12px; color: var(--muted); margin-top: 16px; justify-content: center; }
+  .legend-item { display: flex; align-items: center; gap: 6px; }
+  .legend-dot { width: 10px; height: 10px; border-radius: 3px; }
+
+  .note {
+    font-size: 12px;
+    color: var(--muted);
+    background: var(--card2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 14px;
+    margin-top: 12px;
+    line-height: 1.6;
+  }
+  .note strong { color: var(--text); }
+</style>
+</head>
+<body>
+
+<!-- ══════════ HERO ══════════ -->
+<div class="hero">
+  <div class="hero-badge">GRC Platform · Architecture &amp; UX Reference · April 2026</div>
+  <h1>GRC Control Testing Platform</h1>
+  <p>
+    This document explains how the platform is built and how every part of it works —
+    written so that both technical engineers and non-technical stakeholders can follow along.
+    Use the navigation bar below to jump to any section.
+  </p>
+  <div class="hero-chips">
+    <span class="hc hc-blue">FastAPI Backend</span>
+    <span class="hc hc-indigo">Next.js 14 Frontend</span>
+    <span class="hc hc-teal">SQLite / PostgreSQL</span>
+    <span class="hc hc-green">19 API Routers · 16 Pages</span>
+  </div>
+</div>
+
+<!-- ══════════ TOC ══════════ -->
+<nav class="toc">
+  <a href="#what-is-grc">What is GRC?</a>
+  <a href="#who-uses-it">Who Uses It</a>
+  <a href="#big-picture">The Big Picture</a>
+  <a href="#backend">Backend Architecture</a>
+  <a href="#frontend">All Frontend Pages</a>
+  <a href="#workflow-testing">Testing Workflow</a>
+  <a href="#workflow-deficiency">Deficiency Workflow</a>
+  <a href="#workflow-risk">Risk Workflow</a>
+  <a href="#tech-stack">Tech Stack</a>
+</nav>
+
+<div class="content">
+
+<!-- ══════════ SECTION 1: WHAT IS GRC ══════════ -->
+<div id="what-is-grc" class="section">
+  <div class="section-header">
+    <div class="section-icon" style="background:#0d2040">📘</div>
+    <div>
+      <h2>What is GRC — and What Does This Platform Do?</h2>
+      <p>Plain-English context for non-technical readers before we dive into the technical details.</p>
+    </div>
+  </div>
+
+  <div class="callout blue">
+    <div class="callout-icon">🏦</div>
+    <div>
+      <div class="callout-title">GRC stands for Governance, Risk &amp; Compliance</div>
+      <div class="callout-body">
+        Companies — especially those in finance, healthcare, and publicly traded industries — are required by law and regulation
+        to prove that they have controls in place to prevent fraud, data breaches, and operational failures.
+        A <strong style="color:var(--text)">control</strong> is simply a rule or process the company follows, like
+        "two people must approve every wire transfer over $10,000" or "access logs are reviewed every week."
+      </div>
+    </div>
+  </div>
+
+  <div class="callout green">
+    <div class="callout-icon">✅</div>
+    <div>
+      <div class="callout-title">This platform is where those controls get tested</div>
+      <div class="callout-body">
+        Once a year (or more often), auditors and internal testers must <strong style="color:var(--text)">prove</strong>
+        that every control is actually working — not just written down.
+        They gather evidence, run test procedures, and sign off on their findings.
+        If a control isn't working, that's called a <strong style="color:var(--text)">deficiency</strong>, and it must be fixed and tracked until it's resolved.
+      </div>
+    </div>
+  </div>
+
+  <div class="callout amber">
+    <div class="callout-icon">⚠️</div>
+    <div>
+      <div class="callout-title">Why it matters</div>
+      <div class="callout-body">
+        Failing an audit can result in regulatory fines, loss of operating licences, and reputational damage.
+        This platform exists to make the testing process systematic, traceable, and auditor-ready —
+        replacing spreadsheets and email chains with a structured, role-based workflow with a full audit trail.
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<!-- ══════════ SECTION 2: WHO USES IT ══════════ -->
+<div id="who-uses-it" class="section">
+  <div class="section-header">
+    <div class="section-icon" style="background:#1a0f35">👥</div>
+    <div>
+      <h2>Who Uses This Platform</h2>
+      <p>Five user roles — each with different levels of access. The system enforces these boundaries automatically.</p>
+    </div>
+  </div>
+
+  <div class="chart-card">
+    <table class="role-table">
+      <thead>
+        <tr>
+          <th>Role</th>
+          <th>Plain-English Description</th>
+          <th>Can Test</th>
+          <th>Can Review</th>
+          <th>Can Admin</th>
+          <th>Can View Risks</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><span class="role-badge rb-admin">Admin</span></td>
+          <td>Full control over everything. Sets up users, policies, and the overall programme.</td>
+          <td class="check">✔</td><td class="check">✔</td><td class="check">✔</td><td class="check">✔</td>
+        </tr>
+        <tr>
+          <td><span class="role-badge rb-manager">GRC Manager</span></td>
+          <td>Runs the compliance programme. Creates test cycles, assigns work, reviews results.</td>
+          <td class="check">✔</td><td class="check">✔</td><td class="cross">–</td><td class="check">✔</td>
+        </tr>
+        <tr>
+          <td><span class="role-badge rb-analyst">GRC Analyst</span></td>
+          <td>Does the day-to-day testing work — gathers evidence, fills in workpapers, submits for review.</td>
+          <td class="check">✔</td><td class="cross">–</td><td class="cross">–</td><td class="partial">Read</td>
+        </tr>
+        <tr>
+          <td><span class="role-badge rb-auditor">Auditor</span></td>
+          <td>External or internal auditor. Can read everything but cannot change records — read-only access.</td>
+          <td class="cross">–</td><td class="partial">Read</td><td class="cross">–</td><td class="partial">Read</td>
+        </tr>
+        <tr>
+          <td><span class="role-badge rb-owner">Control Owner</span></td>
+          <td>The business person responsible for a specific control. Can view and respond to their own items.</td>
+          <td class="partial">Own</td><td class="cross">–</td><td class="cross">–</td><td class="cross">–</td>
+        </tr>
+      </tbody>
+    </table>
+    <div class="note">
+      <strong>How the system enforces this:</strong> When a user logs in they receive a JWT (a secure digital token) that contains their role.
+      Every API request sends this token, and the backend checks permissions before doing anything.
+      The frontend also hides menu items and buttons that a role isn't allowed to use.
+    </div>
+  </div>
+</div>
+
+
+<!-- ══════════ SECTION 3: BIG PICTURE ══════════ -->
+<div id="big-picture" class="section">
+  <div class="section-header">
+    <div class="section-icon" style="background:#042f2e">🗺</div>
+    <div>
+      <h2>The Big Picture</h2>
+      <p>How the three main layers — users, the web app, and the database — connect to each other.</p>
+    </div>
+  </div>
+
+  <div class="chart-card">
+    <div class="chart-label">System overview</div>
+    <div class="mermaid">
+flowchart LR
+    U["👤 User\n(browser)"]
+    FE["🖥 Next.js Frontend\nWhat users see & click\nRunning on port 3000"]
+    BE["⚙ FastAPI Backend\nBusiness logic & rules\nRunning on port 8000"]
+    DB[("🗃 Database\nSQLite in dev\nPostgreSQL in prod")]
+
+    U -->|"types URL,\nclicks buttons"| FE
+    FE -->|"sends API requests\nwith user token"| BE
+    BE -->|"reads & writes\nrecords"| DB
+    DB -->|"returns data"| BE
+    BE -->|"sends JSON response"| FE
+    FE -->|"renders page\nfor user"| U
+
+    style FE fill:#0d2040,stroke:#1e4080,color:#93c5fd
+    style BE fill:#042f2e,stroke:#134e4a,color:#5eead4
+    style DB fill:#12103a,stroke:#312e81,color:#c4b5fd
+    </div>
+    <div class="note">
+      <strong>What this means in plain English:</strong>
+      The user interacts only with the frontend (the website).
+      The frontend never touches the database directly — it always goes through the backend,
+      which acts as the gatekeeper, checking permissions and enforcing business rules before anything is saved.
+    </div>
+  </div>
+</div>
+
+
+<!-- ══════════ SECTION 4: BACKEND ══════════ -->
+<div id="backend" class="section">
+  <div class="section-header">
+    <div class="section-icon" style="background:#042f2e">⚙</div>
+    <div>
+      <h2>Backend Architecture</h2>
+      <p>
+        The backend is the engine room — users never see it, but every action in the app goes through it.
+        It is built with <strong style="color:var(--text)">FastAPI</strong> (a Python web framework) and stores data in
+        <strong style="color:var(--text)">SQLite</strong> for local development or <strong style="color:var(--text)">PostgreSQL</strong> for production.
+      </p>
+    </div>
+  </div>
+
+  <div class="callout blue">
+    <div class="callout-icon">📦</div>
+    <div>
+      <div class="callout-title">How to read this diagram</div>
+      <div class="callout-body">
+        A request from the browser travels <strong style="color:var(--text)">top to bottom</strong> through these layers.
+        Each layer has one job: check security, route to the right handler, validate the data, read/write the database.
+        The response travels back up and is returned to the browser as JSON.
+      </div>
+    </div>
+  </div>
+
+  <div class="chart-card">
+    <div class="chart-label">Backend request flow — top to bottom</div>
+    <div class="mermaid">
+flowchart TD
+    CLIENT("🌐 Browser / Next.js Frontend\nSends HTTP requests with a Bearer token in the header")
+
+    CLIENT -->|HTTPS · JSON| MW
+
+    subgraph MW ["FastAPI Application  —  the entry point for every request"]
+        direction TB
+
+        CORS["🔒 Step 1 · CORS Check\nVerifies the request is coming from an allowed website.\nBlocks requests from unknown origins — basic security."]
+        JWT["🪪 Step 2 · JWT Token Check\nDecodes the user's token to find out who they are and what role they have.\nRejects requests with missing or expired tokens."]
+        GUARD["🛠 Step 3 · Database Startup Guard\nOn first launch, checks the database schema is up to date.\nAdds any missing columns to existing tables without losing data."]
+
+        CORS --> JWT --> GUARD --> ROUTES
+
+        subgraph ROUTES ["Step 4 · API Routers — 19 modules, one per area of the app"]
+            direction LR
+            R1["Core Testing\nauth · users · controls\ntest_cycles · evidence"]
+            R2["Deficiency Tracking\ndeficiencies · checklist ✦\ndeficiency_milestones ✦"]
+            R3["Risk Management\nrisks · assets · threats\nrisk_reviews · treatment_plans"]
+            R4["Platform\napprovals · exceptions\naudit_logs · exports\nnotifications · dashboard"]
+        end
+
+        ROUTES --> PERM
+
+        PERM["🛡 Step 5 · Permission Guard\nChecks that this specific user is allowed to perform this specific action.\nFor example: only a manager or admin can approve a test result.\nReturns a 403 Forbidden error if the check fails."]
+
+        PERM --> LOGIC
+
+        subgraph LOGIC ["Step 6 · Business Logic Layer"]
+            direction LR
+            SCH["📐 Pydantic Schemas\nValidate the shape and types of incoming data.\nReject malformed requests before they reach the database."]
+            REPO["🗄 Repositories\nOne class per data type.\nHandle all database queries using the ORM.\nInclude all related data needed by the response."]
+        end
+
+        SCH --> REPO
+
+        REPO --> ORM
+
+        subgraph ORM ["Step 7 · SQLAlchemy ORM Models — the data structure"]
+            direction LR
+            M1["User · Control\nTestCycle · TestAssignment ✦"]
+            M2["TestChecklistItem ✦\nDeficiency ✦\nDeficiencyMilestone ✦"]
+            M3["Risk · Asset · Threat\nEvidence · Approval · AuditLog"]
+        end
+    end
+
+    ORM --> DB1 & DB2
+
+    DB1[("🗃 SQLite\nLocal development\nFile-based, no setup needed")]
+    DB2[("🐘 PostgreSQL\nProduction & Azure\nManaged with Alembic migrations\n001 through 008")]
+
+    classDef new    fill:#052e16,stroke:#16a34a,color:#86efac
+    classDef updated fill:#1e3a5f,stroke:#3b82f6,color:#93c5fd
+    classDef db     fill:#12103a,stroke:#312e81,color:#c4b5fd
+    class R2 new
+    class M1,M2 updated
+    class DB1,DB2 db
+    </div>
+    <div class="legend">
+      <div class="legend-item"><div class="legend-dot" style="background:#22c55e"></div> New in latest sprint</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#3b82f6"></div> Updated in latest sprint</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#475569"></div> Existing / unchanged</div>
+    </div>
+  </div>
+
+  <div class="callout indigo">
+    <div class="callout-icon">💡</div>
+    <div>
+      <div class="callout-title">What Alembic migrations are</div>
+      <div class="callout-body">
+        Think of migrations like a version-controlled change log for the database structure.
+        When a developer adds a new field (like "root cause" on a deficiency), they write a migration script.
+        That script is run once on the production database to add the field — without deleting any existing data.
+        Migrations 001–008 represent every structural change made to date.
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<!-- ══════════ SECTION 5: FRONTEND PAGES ══════════ -->
+<div id="frontend" class="section">
+  <div class="section-header">
+    <div class="section-icon" style="background:#0d2040">🖼</div>
+    <div>
+      <h2>All Frontend Pages</h2>
+      <p>
+        The frontend is built with <strong style="color:var(--text)">Next.js 14</strong> using the App Router — a React framework.
+        Every page is a React component. Data is fetched from the backend via a central <strong style="color:var(--text)">api.ts</strong> file
+        using Axios, with the user's token automatically attached to every request.
+      </p>
+    </div>
+  </div>
+
+  <div class="chart-card" style="margin-bottom:28px">
+    <div class="chart-label">Auth flow — how a user gets in</div>
+    <div class="mermaid">
+flowchart LR
+    A["🌍 User opens\nthe app"] --> B
+    B["/login page\nEnter username\n& password"] -->|"POST /auth/token"| C
+    C["FastAPI checks\ncredentials\nagainst database"] -->|"Returns JWT token\n+ user profile"| D
+    D["Token saved to\nsessionStorage\n(cleared on tab close)"] --> E
+    E["App Shell loads\nSidebar + page content\nbased on user role"]
+    E -->|"Every API call includes\nAuthorization: Bearer token"| F["Backend API\nverifies identity\non every request"]
+    </div>
+    <div class="note">
+      <strong>sessionStorage vs localStorage:</strong>
+      The token is stored in sessionStorage, which means it is automatically cleared when the browser tab is closed.
+      This is more secure than localStorage (which persists until manually cleared) because it limits the window
+      in which a stolen token could be replayed.
+    </div>
+  </div>
+
+  <hr class="divider" />
+  <p style="font-size:13px;color:var(--muted);margin-bottom:20px">
+    All pages below sit inside the <strong style="color:var(--text)">App Shell</strong> — a wrapper that checks the user is logged in,
+    then renders the sidebar navigation and the page content side by side.
+    The sidebar adapts to the user's role (Admin-only items are hidden from other roles).
+  </p>
+
+  <!-- MAIN PAGES -->
+  <p style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);margin-bottom:12px">Main Navigation</p>
+  <div class="page-grid" style="margin-bottom:28px">
+
+    <div class="page-card pc-blue">
+      <div class="page-card-top">
+        <span class="emoji">🗂</span>
+        <span class="label">My Work <span class="tag tag-new">new</span></span>
+        <span class="route">/my-work</span>
+      </div>
+      <div class="page-card-body">
+        <p class="plain">
+          A personal dashboard that pulls together everything that needs <em>this user's</em> attention right now —
+          across all test cycles and all deficiencies. Think of it as an inbox for compliance work.
+        </p>
+        <ul>
+          <li>My Testing Assignments — controls this user has been assigned to test</li>
+          <li>Review Queue — test results waiting for this user to approve or reject</li>
+          <li>My Deficiencies — open issues where this user is the remediation owner</li>
+          <li>Pending Approvals — items in the approval workflow awaiting a decision</li>
+          <li>Shows "You're all caught up!" when there is nothing outstanding</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="page-card pc-slate">
+      <div class="page-card-top">
+        <span class="emoji">📊</span>
+        <span class="label">Dashboard</span>
+        <span class="route">/dashboard</span>
+      </div>
+      <div class="page-card-body">
+        <p class="plain">
+          A high-level overview of the programme's health at a glance — for managers and executives
+          who need a summary without diving into individual records.
+        </p>
+        <ul>
+          <li>KPI cards — total controls, open deficiencies, test cycle completion rate</li>
+          <li>Status distribution charts — how many tests are in each state</li>
+          <li>Recent activity feed — latest events across the platform</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="page-card pc-slate">
+      <div class="page-card-top">
+        <span class="emoji">🛡</span>
+        <span class="label">Control Library</span>
+        <span class="route">/controls</span>
+      </div>
+      <div class="page-card-body">
+        <p class="plain">
+          The master list of every internal control the company has documented.
+          A control is a rule or process designed to prevent a specific risk.
+          All testing flows from this library.
+        </p>
+        <ul>
+          <li>Browse, search, and filter all controls</li>
+          <li>Create and edit controls with description, owner, and frequency</li>
+          <li>Each control links to its test cycles and deficiency history</li>
+          <li>Controls are the foundation — nothing gets tested that isn't in this library</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="page-card pc-slate">
+      <div class="page-card-top">
+        <span class="emoji">🔖</span>
+        <span class="label">SOX Scoping</span>
+        <span class="route">/sox</span>
+      </div>
+      <div class="page-card-body">
+        <p class="plain">
+          SOX (Sarbanes-Oxley) is a US law that requires public companies to test specific financial reporting controls every year.
+          This page is where managers mark which controls are "in scope" for SOX and therefore must be tested.
+        </p>
+        <ul>
+          <li>Mark controls as SOX in-scope or out-of-scope</li>
+          <li>Assign control owners responsible for each SOX control</li>
+          <li>Set review periods and frequency (quarterly, annual)</li>
+          <li>Drives which controls must appear in test cycles each year</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="page-card pc-indigo">
+      <div class="page-card-top">
+        <span class="emoji">🔬</span>
+        <span class="label">Test Cycles <span class="tag tag-updated">updated</span></span>
+        <span class="route">/test-cycles</span>
+      </div>
+      <div class="page-card-body">
+        <p class="plain">
+          A Test Cycle is a formal testing period — for example, "Q1 2026 SOX Testing."
+          Within each cycle, individual controls are assigned to testers.
+          This page lists all cycles; clicking one opens its detail page.
+        </p>
+        <ul>
+          <li>Create cycles with a name, date range, and status</li>
+          <li>Assign controls to specific testers and reviewers</li>
+          <li>Track overall cycle progress at a glance</li>
+          <li>Cycle detail page shows all assignments with their current status</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="page-card pc-teal">
+      <div class="page-card-top">
+        <span class="emoji">📎</span>
+        <span class="label">Evidence</span>
+        <span class="route">/evidence</span>
+      </div>
+      <div class="page-card-body">
+        <p class="plain">
+          Auditors don't just take your word for it — they need proof.
+          This page manages all supporting documents uploaded to support test results:
+          screenshots, reports, exports, and signed approvals.
+        </p>
+        <ul>
+          <li>Upload files linked to a specific control or assignment</li>
+          <li>Track who uploaded what and when (full chain of custody)</li>
+          <li>Auditors can download all evidence for their review</li>
+          <li>Allowed file types and size limits are enforced on upload</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="page-card pc-amber">
+      <div class="page-card-top">
+        <span class="emoji">⚠️</span>
+        <span class="label">Deficiencies <span class="tag tag-updated">updated</span></span>
+        <span class="route">/deficiencies</span>
+      </div>
+      <div class="page-card-body">
+        <p class="plain">
+          When a control is found to not be working as intended, a deficiency is logged.
+          This page is the master register of all deficiencies — open, in remediation, and closed.
+          Click any row to expand it and manage the fix plan.
+        </p>
+        <ul>
+          <li>Table with clickable rows — expand to see full detail</li>
+          <li><strong style="color:var(--text)">Remediation Details (new):</strong> root cause, business impact, owner, evidence of closure</li>
+          <li><strong style="color:var(--text)">Milestones (new):</strong> break the fix into tasks with due dates, assignees, and status</li>
+          <li>Milestone count badge visible on collapsed row</li>
+          <li>Status lifecycle: open → in remediation → remediated → risk accepted</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="page-card pc-red">
+      <div class="page-card-top">
+        <span class="emoji">🚫</span>
+        <span class="label">Exceptions</span>
+        <span class="route">/exceptions</span>
+      </div>
+      <div class="page-card-body">
+        <p class="plain">
+          Sometimes a company knowingly cannot comply with a control for a period of time —
+          maybe a system is being replaced. An exception is a formal, time-limited acknowledgement of that gap.
+          It's not a deficiency (that's an unintended failure) — it's a documented risk acceptance.
+        </p>
+        <ul>
+          <li>Log exceptions with a reason, risk rating, and expiry date</li>
+          <li>Exceptions must be approved through the approval workflow</li>
+          <li>Expired exceptions are flagged automatically</li>
+          <li>Auditors can see all exceptions and their approvals</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="page-card pc-violet">
+      <div class="page-card-top">
+        <span class="emoji">✔</span>
+        <span class="label">My Approvals</span>
+        <span class="route">/approvals</span>
+      </div>
+      <div class="page-card-body">
+        <p class="plain">
+          Certain actions in the system — like closing a deficiency or approving an exception —
+          require a second person to sign off. This page shows everything currently waiting for
+          <em>this user's</em> approval decision.
+        </p>
+        <ul>
+          <li>Lists all pending approval requests assigned to this user</li>
+          <li>Approve or reject with an optional comment</li>
+          <li>Decision is timestamped and logged in the audit trail</li>
+          <li>Approval policies (configured by admin) define who must approve what</li>
+        </ul>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- TEST CYCLE DETAIL DEEP DIVE -->
+  <div class="callout blue" style="margin-bottom:20px">
+    <div class="callout-icon">🔬</div>
+    <div>
+      <div class="callout-title">Test Cycle Detail Page — deep dive</div>
+      <div class="callout-body">
+        The Cycle Detail page (<code style="color:var(--text)">/test-cycles/[id]</code>) is the heart of the testing workflow.
+        Each control assignment is shown as a collapsible row. Click to expand and access five integrated panels:
+      </div>
+    </div>
+  </div>
+
+  <div class="page-grid" style="margin-bottom:28px">
+    <div class="page-card pc-slate">
+      <div class="page-card-top"><span class="emoji">📄</span><span class="label">Workpaper Section <span class="tag tag-updated">updated</span></span></div>
+      <div class="page-card-body">
+        <p class="plain">The tester's formal documentation of what they did and what they found. Equivalent to audit workpapers in a paper-based world.</p>
+        <ul>
+          <li>Testing Steps — what procedure was followed</li>
+          <li>Sample Details — which transactions or records were tested</li>
+          <li>Walkthrough Notes — observations during a walkthrough with the control owner</li>
+          <li>Conclusion — the tester's overall finding</li>
+          <li>Evidence Request — what documents have been requested and by when</li>
+          <li>Collapsible using the browser's native &lt;details&gt; element — shows a "filled" badge when any field has content</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="page-card pc-slate">
+      <div class="page-card-top"><span class="emoji">☑</span><span class="label">Checklist Panel <span class="tag tag-new">new</span></span></div>
+      <div class="page-card-body">
+        <p class="plain">A step-by-step checklist of tasks that must be completed for this assignment. Ensures nothing is missed during testing.</p>
+        <ul>
+          <li>Progress bar shows X of Y steps completed</li>
+          <li>Toggle individual items complete/incomplete</li>
+          <li>Add custom checklist items for this assignment</li>
+          <li>Delete items that aren't applicable</li>
+          <li>Checklist item count badge shows on the collapsed row header</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="page-card pc-green">
+      <div class="page-card-top"><span class="emoji">📤</span><span class="label">Submit for Review <span class="tag tag-updated">updated</span></span></div>
+      <div class="page-card-body">
+        <p class="plain">When the tester is done, they formally submit their work for a second-person review. This replaces ad-hoc email chains with a tracked handoff.</p>
+        <ul>
+          <li>Tester adds a sign-off note summarising their work</li>
+          <li>Status changes from "in progress" to "needs review"</li>
+          <li>Records who submitted and the exact timestamp</li>
+          <li>Submission receipt banner appears in the assignment row</li>
+          <li>Reviewer is notified that work is waiting</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="page-card pc-blue">
+      <div class="page-card-top"><span class="emoji">✅</span><span class="label">Reviewer Decision <span class="tag tag-updated">updated</span></span></div>
+      <div class="page-card-body">
+        <p class="plain">The reviewer examines the workpaper and evidence, then makes one of three decisions. This creates a formal, signed-off record.</p>
+        <ul>
+          <li><strong style="color:var(--green)">Approve</strong> — work is complete and satisfactory → status becomes "complete"</li>
+          <li><strong style="color:var(--amber)">Return</strong> — more work is needed → status returns to "in progress" so tester can fix it</li>
+          <li><strong style="color:var(--red)">Fail</strong> — control has failed testing → status becomes "failed," deficiency should be raised</li>
+          <li>Decision, note, reviewer name, and timestamp all recorded</li>
+          <li>Colour-coded receipt banner shows the outcome</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="page-card pc-amber">
+      <div class="page-card-top"><span class="emoji">⚠</span><span class="label">Deficiencies Panel</span></div>
+      <div class="page-card-body">
+        <p class="plain">Issues discovered during testing are logged directly from the assignment — keeping the deficiency linked to the specific test and control where it was found.</p>
+        <ul>
+          <li>Lists all deficiencies already linked to this assignment</li>
+          <li>Create a new deficiency without leaving the assignment page</li>
+          <li>Link is maintained: deficiency knows which assignment and control it came from</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- ADMIN PAGES -->
+  <p style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);margin-bottom:12px">Admin Section (visible to Admin role only)</p>
+  <div class="page-grid" style="margin-bottom:28px">
+
+    <div class="page-card pc-violet">
+      <div class="page-card-top">
+        <span class="emoji">📋</span>
+        <span class="label">Audit Trail <span class="tag tag-admin">admin</span></span>
+        <span class="route">/audit-logs</span>
+      </div>
+      <div class="page-card-body">
+        <p class="plain">
+          Every significant action taken in the system is permanently logged here —
+          who did what, to which record, and exactly when. This is required by SOX and most compliance frameworks.
+          It cannot be edited or deleted.
+        </p>
+        <ul>
+          <li>Structured logs with user, action, entity type, entity ID, and timestamp</li>
+          <li>Filter by user, date range, or action type</li>
+          <li>SIEM-ready format (can be exported to security monitoring tools)</li>
+          <li>Read-only — no one can alter the audit trail, not even admins</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="page-card pc-violet">
+      <div class="page-card-top">
+        <span class="emoji">👤</span>
+        <span class="label">Users <span class="tag tag-admin">admin</span></span>
+        <span class="route">/settings/users</span>
+      </div>
+      <div class="page-card-body">
+        <p class="plain">
+          Create and manage user accounts. Assign roles. Deactivate accounts when people leave.
+          This is the only place where role assignments are made.
+        </p>
+        <ul>
+          <li>Create users with username, email, display name, and role</li>
+          <li>Change a user's role (takes effect immediately on next login)</li>
+          <li>View last login times</li>
+          <li>Deactivate accounts (does not delete history — preserves the audit trail)</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="page-card pc-violet">
+      <div class="page-card-top">
+        <span class="emoji">⚙</span>
+        <span class="label">Approval Policies <span class="tag tag-admin">admin</span></span>
+        <span class="route">/settings/approvals</span>
+      </div>
+      <div class="page-card-body">
+        <p class="plain">
+          Configure which actions require approval and who is authorised to approve them.
+          For example: "Closing a deficiency requires a GRC Manager to approve."
+        </p>
+        <ul>
+          <li>Define approval rules per entity type (deficiency, exception, risk, etc.)</li>
+          <li>Set required approver role or specific users</li>
+          <li>Single or multi-stage approval chains</li>
+          <li>Changes take effect immediately for new approval requests</li>
+        </ul>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- RISK MANAGEMENT PAGES -->
+  <p style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);margin-bottom:12px">Risk Management Section</p>
+  <div class="page-grid" style="margin-bottom:12px">
+
+    <div class="page-card pc-green">
+      <div class="page-card-top">
+        <span class="emoji">🏗</span>
+        <span class="label">Assets</span>
+        <span class="route">/assets</span>
+      </div>
+      <div class="page-card-body">
+        <p class="plain">
+          An asset is anything valuable that could be harmed — a system, a process, a data set, or a team.
+          This is the starting point for risk management: you can only assess risk to something once you've identified what matters.
+        </p>
+        <ul>
+          <li>Register all business assets with type, owner, and criticality rating</li>
+          <li>Assets are linked to threats (what could harm them) and risks (the assessed likelihood &amp; impact)</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="page-card pc-green">
+      <div class="page-card-top">
+        <span class="emoji">⚡</span>
+        <span class="label">Threats</span>
+        <span class="route">/threats</span>
+      </div>
+      <div class="page-card-body">
+        <p class="plain">
+          A threat is something that could cause harm to an asset — a cyberattack, a natural disaster,
+          a rogue employee, a vendor failure. Threats are assessed independently of their likelihood,
+          which is captured in the Risk Register.
+        </p>
+        <ul>
+          <li>Catalogue of all identified threats, categorised by type</li>
+          <li>Each threat is linked to the assets it could affect</li>
+          <li>Threat entries feed into risk assessments</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="page-card pc-green">
+      <div class="page-card-top">
+        <span class="emoji">⚖</span>
+        <span class="label">Risk Register</span>
+        <span class="route">/risks</span>
+      </div>
+      <div class="page-card-body">
+        <p class="plain">
+          The Risk Register is a living record of every assessed risk — combining a threat with an asset
+          to produce a risk with likelihood, impact, and an overall score.
+          Risks can be parent/child (a group with sub-risks) and can be filtered and sorted by age, score, and owner.
+        </p>
+        <ul>
+          <li>Hierarchical table — parent risks with expandable child risks</li>
+          <li>Inherent risk score (before controls) vs residual score (after controls)</li>
+          <li>Age column with colour-coded aging buckets (&lt;30d, 30–90d, 90–180d, 180d+)</li>
+          <li>Treatment plans attached to each risk</li>
+          <li>Export to spreadsheet</li>
+          <li>Expandable detail row shows full description, scores, ownership, and linked controls</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="page-card pc-green">
+      <div class="page-card-top">
+        <span class="emoji">📅</span>
+        <span class="label">Risk Reviews</span>
+        <span class="route">/risk-reviews</span>
+      </div>
+      <div class="page-card-body">
+        <p class="plain">
+          Risks can't just be assessed once and forgotten. Risk Reviews are periodic check-ins
+          where the risk owner confirms whether the risk has changed, been mitigated further, or has worsened.
+        </p>
+        <ul>
+          <li>Scheduled review workflow with due dates</li>
+          <li>Reviewer confirms or updates the risk's current status and score</li>
+          <li>Review history logged with timestamps</li>
+          <li>Overdue reviews are flagged on the dashboard</li>
+        </ul>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+
+<!-- ══════════ SECTION 6: TESTING WORKFLOW ══════════ -->
+<div id="workflow-testing" class="section">
+  <div class="section-header">
+    <div class="section-icon" style="background:#12103a">🔬</div>
+    <div>
+      <h2>End-to-End Control Testing Workflow</h2>
+      <p>How a single control goes from "needs testing" to "approved" — step by step, with every handoff and decision point shown.</p>
+    </div>
+  </div>
+
+  <div class="chart-card">
+    <div class="chart-label">Testing workflow — roles shown in brackets</div>
+    <div class="mermaid">
+flowchart TD
+    A["🏁 Start of Test Period\nManager creates a Test Cycle\ne.g. 'Q1 2026 SOX Testing'\nwith a start date and end date"]
+
+    A --> B["📋 Assign Controls\nManager picks controls from the library\nand assigns each one to a Tester and a Reviewer\nThe Tester does the work; the Reviewer signs it off"]
+
+    B --> C["🔔 Tester Notified\nAssignment appears in the Tester's\n'My Work' page with status: Not Started"]
+
+    C --> D["📄 Tester Documents Work\nOpens the assignment and fills in the Workpaper:\n• Testing steps followed\n• Sample of transactions reviewed\n• Walkthrough notes\n• Evidence requested from the control owner"]
+
+    D --> E["☑ Tester Completes Checklist\nTicks off each required step\nProgress bar reaches 100%"]
+
+    E --> F{"Did testing\nreveal an issue?"}
+
+    F -->|"Yes — control failed"| G["⚠ Log a Deficiency\nTester raises a deficiency record\nlinked to this assignment.\nWork continues — deficiency handled separately."]
+
+    F -->|"No — looks good"| H
+
+    G --> H["📤 Submit for Review\nTester writes a sign-off note summarising findings\nClicks 'Submit for Review'\nStatus → Needs Review\nReviewer sees it appear in their My Work queue"]
+
+    H --> I{"Reviewer\nDecision"}
+
+    I -->|"✅ Approve\nWork is thorough and accurate"| J["✅ Complete\nStatus → Complete\nTimestamp and reviewer name recorded\nCycle progress updates"]
+
+    I -->|"↩ Return\nMore work needed"| K["↩ Returned to Tester\nStatus → In Progress\nTester sees reviewer's comment\nRevises and resubmits"]
+
+    I -->|"❌ Fail\nControl has clearly failed"| L["❌ Failed\nStatus → Failed\nDeficiency must be raised if not already done\nEscalated for management attention"]
+
+    K --> D
+
+    J --> M["📊 Cycle Closes\nWhen all assignments are complete or failed\nManager closes the Test Cycle\nResults available for audit"]
+    L --> M
+
+    style A    fill:#0d2040,stroke:#1e4080,color:#93c5fd
+    style J    fill:#052e16,stroke:#16a34a,color:#86efac
+    style L    fill:#1c0606,stroke:#7f1d1d,color:#fca5a5
+    style K    fill:#1c1206,stroke:#78350f,color:#fcd34d
+    style G    fill:#1c1206,stroke:#78350f,color:#fcd34d
+    </div>
+  </div>
+</div>
+
+
+<!-- ══════════ SECTION 7: DEFICIENCY WORKFLOW ══════════ -->
+<div id="workflow-deficiency" class="section">
+  <div class="section-header">
+    <div class="section-icon" style="background:#1c0a06">⚠</div>
+    <div>
+      <h2>Deficiency Management Workflow</h2>
+      <p>What happens after a problem is found — from logging the issue through to formal closure, with milestones tracking every step of the fix.</p>
+    </div>
+  </div>
+
+  <div class="chart-card">
+    <div class="chart-label">Deficiency lifecycle</div>
+    <div class="mermaid">
+flowchart TD
+    A["⚠ Deficiency Raised\nLinked to the assignment and control where it was found.\nGiven a title, severity, and due date for remediation."]
+
+    A --> B["📝 Remediation Plan Created\nThe person responsible fills in:\n• Root Cause — why did this happen?\n• Business Impact — what is the risk to the company?\n• Remediation Owner — who is fixing it?\n• Remediation Steps — what will be done?"]
+
+    B --> C["🏁 Milestones Added\nThe fix is broken into trackable tasks.\nEach milestone has a title, due date, and assignee.\nExample: 'Update access review procedure by 15 May'"]
+
+    C --> D["🔄 Owner Works Through Milestones\nEach milestone is ticked off as completed.\nOverdue milestones are flagged automatically.\nAll changes appear in the audit trail."]
+
+    D --> E{"All milestones\ncomplete?"}
+
+    E -->|"No — still in progress"| D
+
+    E -->|"Yes"| F["📎 Closure Evidence Uploaded\nThe owner uploads proof that the fix is real:\nscreenshots, policy documents, system exports.\nAdded to the evidence library."]
+
+    F --> G["🔍 Validation\nA second person reviews the evidence\nand adds validation notes:\n'Tested — access review now runs monthly, confirmed in system logs'"]
+
+    G --> H{"Approval\nWorkflow"}
+
+    H -->|"Requires manager sign-off\n(set in Approval Policies)"| I["📬 Approval Request Sent\nAppears in approver's My Approvals queue"]
+
+    I --> J{"Approver\nDecision"}
+
+    J -->|"✅ Approve"| K
+    J -->|"↩ Return for more evidence"| F
+
+    H -->|"No approval required"| K
+
+    K["✅ Deficiency Closed\nStatus → Remediated\nclosed_at timestamp recorded\nFull history preserved for audit"]
+
+    L["📊 Alternative: Risk Accepted\nIf the fix is not feasible, management may formally\naccept the risk. Status → Risk Accepted.\nMust be re-reviewed periodically."]
+
+    K --> M["📋 Appears in Audit Report\nFull history available:\nwho raised it, what the root cause was,\nevery milestone, who approved closure, when."]
+    L --> M
+
+    style A fill:#1c0606,stroke:#7f1d1d,color:#fca5a5
+    style K fill:#052e16,stroke:#16a34a,color:#86efac
+    style L fill:#1c1206,stroke:#78350f,color:#fcd34d
+    </div>
+  </div>
+</div>
+
+
+<!-- ══════════ SECTION 8: RISK WORKFLOW ══════════ -->
+<div id="workflow-risk" class="section">
+  <div class="section-header">
+    <div class="section-icon" style="background:#031a0d">⚖</div>
+    <div>
+      <h2>Risk Management Workflow</h2>
+      <p>How a potential threat to the business gets identified, assessed, treated, and kept under review over time.</p>
+    </div>
+  </div>
+
+  <div class="chart-card">
+    <div class="chart-label">Risk management lifecycle</div>
+    <div class="mermaid">
+flowchart TD
+    A["🏗 Asset Identified\nA business asset is added to the register:\nthe system, process, or data that could be harmed.\nGiven an owner, type, and criticality rating."]
+
+    A --> B["⚡ Threat Mapped\nOne or more threats are linked to this asset.\nExample: 'Unauthorised access' linked to 'Customer Database'.\nThreats are categorised: cyber, operational, regulatory, etc."]
+
+    B --> C["📊 Risk Assessed\nA risk record is created combining the asset and threat.\nTwo scores are calculated:\n• Inherent Risk — likelihood × impact BEFORE any controls\n• Residual Risk — likelihood × impact AFTER existing controls"]
+
+    C --> D["📋 Treatment Plan\nWhat will be done about this risk?\n• Mitigate — add or strengthen a control\n• Transfer — insurance or third-party contract\n• Accept — formally acknowledge the risk\n• Avoid — stop the activity altogether"]
+
+    D --> E["🔗 Link to Controls\nIf the treatment is to mitigate,\nthe risk is linked to the controls that address it.\nNow risk management and control testing are connected."]
+
+    E --> F["📅 Periodic Risk Review\nScheduled review assigned to the risk owner.\nOwner confirms: has anything changed?\n• Has the threat likelihood increased?\n• Has a control been weakened?\n• Has the business impact changed?"]
+
+    F --> G{"Risk status\nafter review"}
+
+    G -->|"No change"| H["✅ Review Complete\nReview logged with timestamp.\nNext review date set.\nRisk score unchanged."]
+
+    G -->|"Risk has increased"| I["🔺 Risk Escalated\nScore updated. Residual risk recalculated.\nManagement notified. Treatment plan revised.\nMay trigger a new control or test cycle."]
+
+    G -->|"Risk fully mitigated"| J["✅ Risk Closed\nAll treatment plans complete.\nRisk marked as resolved.\nHistory preserved for audit."]
+
+    H --> F
+    I --> D
+
+    style A fill:#031a0d,stroke:#14532d,color:#86efac
+    style I fill:#1c0606,stroke:#7f1d1d,color:#fca5a5
+    style J fill:#052e16,stroke:#16a34a,color:#86efac
+    </div>
+  </div>
+</div>
+
+
+<!-- ══════════ SECTION 9: TECH STACK ══════════ -->
+<div id="tech-stack" class="section">
+  <div class="section-header">
+    <div class="section-icon" style="background:#0d2040">🧰</div>
+    <div>
+      <h2>Technology Stack</h2>
+      <p>Every tool and framework used — and why it was chosen.</p>
+    </div>
+  </div>
+
+  <div class="stack-grid">
+    <div class="stack-card">
+      <h3>⚙ Backend</h3>
+      <div class="stack-item"><span class="what">Python 3.11+</span><span class="why">Language — strong typing, fast iteration</span></div>
+      <div class="stack-item"><span class="what">FastAPI</span><span class="why">Web framework — automatic API docs, fast</span></div>
+      <div class="stack-item"><span class="what">SQLAlchemy</span><span class="why">ORM — maps Python classes to database tables</span></div>
+      <div class="stack-item"><span class="what">Pydantic</span><span class="why">Data validation — catches bad input at the API boundary</span></div>
+      <div class="stack-item"><span class="what">Alembic</span><span class="why">Database migrations — versioned schema changes</span></div>
+      <div class="stack-item"><span class="what">PyJWT</span><span class="why">JWT token creation and verification</span></div>
+      <div class="stack-item"><span class="what">SQLite (dev)</span><span class="why">Zero-setup file-based database for local dev</span></div>
+      <div class="stack-item"><span class="what">PostgreSQL (prod)</span><span class="why">Production-grade relational database, Azure-compatible</span></div>
+    </div>
+    <div class="stack-card">
+      <h3>🖼 Frontend</h3>
+      <div class="stack-item"><span class="what">TypeScript</span><span class="why">Language — catches type errors at build time</span></div>
+      <div class="stack-item"><span class="what">Next.js 14</span><span class="why">React framework — App Router, file-based routing</span></div>
+      <div class="stack-item"><span class="what">React 18</span><span class="why">UI library — component-based, reactive state</span></div>
+      <div class="stack-item"><span class="what">Tailwind CSS</span><span class="why">Utility-first CSS — fast, consistent styling</span></div>
+      <div class="stack-item"><span class="what">Axios</span><span class="why">HTTP client — centralised API calls with auth headers</span></div>
+      <div class="stack-item"><span class="what">Heroicons</span><span class="why">Icon library — consistent SVG icons throughout</span></div>
+      <div class="stack-item"><span class="what">sessionStorage</span><span class="why">Token storage — auto-cleared when tab closes</span></div>
+    </div>
+    <div class="stack-card">
+      <h3>🔒 Security</h3>
+      <div class="stack-item"><span class="what">JWT (HS256)</span><span class="why">Stateless auth — no server-side sessions needed</span></div>
+      <div class="stack-item"><span class="what">Permission matrix</span><span class="why">Fine-grained action-level access control</span></div>
+      <div class="stack-item"><span class="what">CORS middleware</span><span class="why">Blocks cross-origin requests from unknown domains</span></div>
+      <div class="stack-item"><span class="what">Bcrypt hashing</span><span class="why">Passwords are never stored in plain text</span></div>
+      <div class="stack-item"><span class="what">Immutable audit log</span><span class="why">Every action recorded — cannot be edited</span></div>
+      <div class="stack-item"><span class="what">SIEM-ready logging</span><span class="why">Structured logs exportable to security monitoring</span></div>
+    </div>
+    <div class="stack-card">
+      <h3>🚀 Data &amp; Deployment</h3>
+      <div class="stack-item"><span class="what">Alembic migrations</span><span class="why">Safe, versioned database updates in production</span></div>
+      <div class="stack-item"><span class="what">SQLite runtime guards</span><span class="why">Dev: ALTER TABLE on startup if column missing</span></div>
+      <div class="stack-item"><span class="what">Azure-ready</span><span class="why">PostgreSQL connection string, env-var config</span></div>
+      <div class="stack-item"><span class="what">Environment vars</span><span class="why">No secrets hard-coded — config injected at runtime</span></div>
+      <div class="stack-item"><span class="what">Export endpoints</span><span class="why">Risk register, exceptions, treatment plans to CSV/XLSX</span></div>
+    </div>
+  </div>
+</div>
+
+</div><!-- /content -->
+
+<div style="text-align:center;font-size:11px;color:#1e293b;padding:12px 0 32px">
+  GRC Control Testing Platform &nbsp;·&nbsp; FastAPI + Next.js 14 &nbsp;·&nbsp; April 2026 &nbsp;·&nbsp; ✦ = new or updated in the latest development sprint
+</div>
+
+<script>
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: 'dark',
+    themeVariables: {
+      darkMode: true,
+      background: '#0f1a2e',
+      mainBkg: '#1e293b',
+      nodeBorder: '#334155',
+      clusterBkg: '#0c1525',
+      clusterBorder: '#1e2f4a',
+      lineColor: '#60a5fa',
+      edgeLabelBackground: '#0f1a2e',
+      primaryColor: '#1e3a5f',
+      primaryTextColor: '#e2e8f0',
+      primaryBorderColor: '#3b82f6',
+      secondaryColor: '#1e293b',
+      tertiaryColor: '#0f172a',
+      fontFamily: 'Segoe UI, system-ui, sans-serif',
+      fontSize: '13px',
+    },
+    flowchart: {
+      htmlLabels: true,
+      curve: 'basis',
+      padding: 20,
+      nodeSpacing: 50,
+      rankSpacing: 60,
+    }
+  });
+</script>
+</body>
+</html>

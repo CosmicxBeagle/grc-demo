@@ -164,6 +164,134 @@ function InviteModal({
   );
 }
 
+// ── Deactivate modal — 5A ─────────────────────────────────────────────────────
+
+interface OpenWork {
+  open_assignments: number;
+  open_milestones: number;
+  pending_risk_reviews: number;
+  total: number;
+}
+
+function DeactivateModal({
+  target,
+  allUsers,
+  onClose,
+  onDone,
+}: {
+  target: User;
+  allUsers: User[];
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const [openWork, setOpenWork] = useState<OpenWork | null>(null);
+  const [reason, setReason] = useState("");
+  const [reassignTo, setReassignTo] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    userMgmtApi.openWork(target.id)
+      .then(r => setOpenWork(r.data))
+      .catch(() => setOpenWork({ open_assignments: 0, open_milestones: 0, pending_risk_reviews: 0, total: 0 }));
+  }, [target.id]);
+
+  const submit = async () => {
+    if (!reason.trim()) { setError("Reason is required."); return; }
+    if (openWork && openWork.total > 0 && !reassignTo) {
+      setError("This user has open work. Select someone to reassign it to.");
+      return;
+    }
+    setSaving(true);
+    setError("");
+    try {
+      await userMgmtApi.deactivate(target.id, {
+        reason: reason.trim(),
+        reassign_to_user_id: reassignTo ? Number(reassignTo) : undefined,
+      });
+      onDone();
+    } catch (err: any) {
+      setError(err.response?.data?.detail?.message ?? err.response?.data?.detail ?? "Failed to deactivate user.");
+      setSaving(false);
+    }
+  };
+
+  const activeOthers = allUsers.filter(u => u.id !== target.id && u.status === "active" && !u.deactivated_at);
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-md">
+        <div className="flex items-center justify-between px-6 py-4 border-b">
+          <h2 className="text-lg font-semibold text-gray-900">Deactivate User</h2>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
+        </div>
+        <div className="px-6 py-5 space-y-4">
+          <div className="bg-gray-50 border border-gray-200 rounded-lg px-4 py-3 text-sm">
+            <p className="font-medium text-gray-800">{target.display_name}</p>
+            <p className="text-xs text-gray-400">{target.email}</p>
+          </div>
+
+          {/* Open work summary */}
+          {openWork === null ? (
+            <p className="text-xs text-gray-400">Checking for open work…</p>
+          ) : openWork.total > 0 ? (
+            <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 space-y-1">
+              <p className="text-xs font-semibold text-amber-700 uppercase">Open Work (requires reassignment)</p>
+              {openWork.open_assignments > 0 && <p className="text-xs text-amber-700">· {openWork.open_assignments} open test assignment(s)</p>}
+              {openWork.open_milestones > 0 && <p className="text-xs text-amber-700">· {openWork.open_milestones} open deficiency milestone(s)</p>}
+              {openWork.pending_risk_reviews > 0 && <p className="text-xs text-amber-700">· {openWork.pending_risk_reviews} pending risk review(s)</p>}
+            </div>
+          ) : (
+            <div className="bg-green-50 border border-green-200 rounded-lg px-3 py-2 text-xs text-green-700">
+              No open work assigned. Safe to deactivate immediately.
+            </div>
+          )}
+
+          {/* Reassign to */}
+          {openWork && openWork.total > 0 && (
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">
+                Reassign all open work to <span className="text-red-500">*</span>
+              </label>
+              <select
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                value={reassignTo}
+                onChange={e => setReassignTo(e.target.value)}
+              >
+                <option value="">— Select user —</option>
+                {activeOthers.map(u => <option key={u.id} value={u.id}>{u.display_name} ({u.role})</option>)}
+              </select>
+            </div>
+          )}
+
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Reason <span className="text-red-500">*</span></label>
+            <textarea
+              rows={2}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+              placeholder="e.g. Employee left the organisation"
+              value={reason}
+              onChange={e => setReason(e.target.value)}
+            />
+          </div>
+
+          {error && <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</p>}
+        </div>
+        <div className="flex justify-end gap-3 px-6 py-4 border-t bg-gray-50 rounded-b-xl">
+          <button onClick={onClose} className="px-4 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-100">Cancel</button>
+          <button
+            onClick={submit}
+            disabled={saving || !reason.trim()}
+            className="px-4 py-2 text-sm bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 font-medium"
+          >
+            {saving ? "Deactivating…" : "Deactivate User"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
 export default function UsersSettingsPage() {
@@ -172,7 +300,21 @@ export default function UsersSettingsPage() {
   const [showInvite, setShowInvite] = useState(false);
   const [editRole,   setEditRole]   = useState<{ userId: number; current: string } | null>(null);
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [deactivateTarget, setDeactivateTarget] = useState<User | null>(null);
   const currentUser = getUser();
+
+  // ── Access guard ─────────────────────────────────────────────────────────
+  if (currentUser?.role !== "admin") {
+    return (
+      <AppShell>
+        <div className="flex flex-col items-center justify-center h-64 text-center gap-3">
+          <ShieldCheckIcon className="w-12 h-12 text-gray-300" />
+          <h2 className="text-lg font-semibold text-gray-700">Admin access required</h2>
+          <p className="text-sm text-gray-400">User management is restricted to administrators.</p>
+        </div>
+      </AppShell>
+    );
+  }
 
   const load = () => {
     userMgmtApi.list()
@@ -188,10 +330,9 @@ export default function UsersSettingsPage() {
     load();
   };
 
-  const toggleStatus = async (user: User) => {
-    const next = user.status === "active" ? "inactive" : "active";
-    if (!confirm(`${next === "inactive" ? "Deactivate" : "Reactivate"} ${user.display_name}?`)) return;
-    await userMgmtApi.updateStatus(user.id, next as "active" | "inactive");
+  const reactivate = async (user: User) => {
+    if (!confirm(`Reactivate ${user.display_name}?`)) return;
+    await userMgmtApi.updateStatus(user.id, "active");
     load();
   };
 
@@ -351,27 +492,40 @@ export default function UsersSettingsPage() {
                     <div className="flex items-center gap-1.5">
                       <StatusIcon status={user.status} />
                       <span className="text-xs text-gray-600 capitalize">{user.status ?? "active"}</span>
+                      {user.deactivated_at && (
+                        <span className="text-xs text-gray-400 ml-1" title={user.deactivation_reason ?? undefined}>
+                          · {new Date(user.deactivated_at).toLocaleDateString()}
+                        </span>
+                      )}
                     </div>
+                    {user.deactivation_reason && (
+                      <p className="text-xs text-gray-400 mt-0.5 line-clamp-1" title={user.deactivation_reason}>
+                        {user.deactivation_reason}
+                      </p>
+                    )}
                   </td>
 
                   {/* Actions */}
                   <td className="px-4 py-3">
                     {user.id !== currentUser?.id && (
                       <div className="flex items-center gap-1 justify-end">
-                        <button
-                          onClick={() => toggleStatus(user)}
-                          title={user.status === "active" ? "Deactivate" : "Activate"}
-                          className={`p-1.5 rounded-lg transition-colors ${
-                            user.status === "active"
-                              ? "text-gray-400 hover:text-red-600 hover:bg-red-50"
-                              : "text-gray-400 hover:text-green-600 hover:bg-green-50"
-                          }`}
-                        >
-                          {user.status === "active"
-                            ? <XCircleIcon     className="w-4 h-4" />
-                            : <CheckCircleIcon className="w-4 h-4" />
-                          }
-                        </button>
+                        {user.status === "active" && !user.deactivated_at ? (
+                          <button
+                            onClick={() => setDeactivateTarget(user)}
+                            title="Deactivate user"
+                            className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                          >
+                            <XCircleIcon className="w-4 h-4" />
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => reactivate(user)}
+                            title="Reactivate user"
+                            className="p-1.5 rounded-lg text-gray-400 hover:text-green-600 hover:bg-green-50 transition-colors"
+                          >
+                            <CheckCircleIcon className="w-4 h-4" />
+                          </button>
+                        )}
                         <button
                           onClick={() => deleteUser(user)}
                           title="Delete user"
@@ -412,6 +566,15 @@ export default function UsersSettingsPage() {
         <InviteModal
           onClose={() => setShowInvite(false)}
           onSaved={u => { setUsers(prev => [u, ...prev]); setShowInvite(false); }}
+        />
+      )}
+
+      {deactivateTarget && (
+        <DeactivateModal
+          target={deactivateTarget}
+          allUsers={users}
+          onClose={() => setDeactivateTarget(null)}
+          onDone={() => { setDeactivateTarget(null); load(); }}
         />
       )}
     </div>

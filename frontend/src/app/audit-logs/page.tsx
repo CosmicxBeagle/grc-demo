@@ -2,7 +2,10 @@
 import { useEffect, useState, useCallback } from "react";
 import AppShell from "@/components/AppShell";
 import { auditApi } from "@/lib/api";
+import { getUser } from "@/lib/auth";
 import type { AuditLogEntry } from "@/types";
+import Pagination from "@/components/ui/Pagination";
+import { ShieldCheckIcon } from "@heroicons/react/24/outline";
 
 // ── Action badge colours ───────────────────────────────────────────────────
 const ACTION_COLOR: Record<string, string> = {
@@ -16,9 +19,12 @@ const ACTION_COLOR: Record<string, string> = {
   EXCEPTION_APPROVED:    "bg-green-100 text-green-800",
   EXCEPTION_REJECTED:    "bg-red-100 text-red-800",
   EXCEPTION_UPDATED:     "bg-blue-100 text-blue-800",
-  DEFICIENCY_CREATED:    "bg-orange-100 text-orange-800",
-  DEFICIENCY_UPDATED:    "bg-blue-100 text-blue-800",
-  DEFICIENCY_DELETED:    "bg-red-100 text-red-800",
+  DEFICIENCY_CREATED:              "bg-orange-100 text-orange-800",
+  DEFICIENCY_UPDATED:              "bg-blue-100 text-blue-800",
+  DEFICIENCY_DELETED:              "bg-red-100 text-red-800",
+  DEFICIENCY_PROMOTED_TO_RISK:     "bg-purple-100 text-purple-800",
+  DEFICIENCY_LINKED_TO_RISK:       "bg-indigo-100 text-indigo-800",
+  DEFICIENCY_UNLINKED_FROM_RISK:   "bg-gray-100 text-gray-600",
   EVIDENCE_UPLOADED:     "bg-purple-100 text-purple-800",
   EVIDENCE_DELETED:      "bg-red-100 text-red-800",
   AUTH_LOGIN:            "bg-gray-100 text-gray-700",
@@ -52,21 +58,35 @@ function ChangePill({ field, from, to }: { field: string; from: unknown; to: unk
   );
 }
 
-const PAGE_SIZE = 50;
-
 export default function AuditLogsPage() {
+  const currentUser = getUser();
   const [items, setItems]               = useState<AuditLogEntry[]>([]);
   const [total, setTotal]               = useState(0);
-  const [page, setPage]                 = useState(0);
+  const [page, setPage]                 = useState(1);   // 1-indexed to match Pagination component
+  const [pageSize, setPageSize]         = useState(50);
   const [loading, setLoading]           = useState(true);
   const [error, setError]               = useState<string | null>(null);
+
+  // ── Access guard: audit trail is for admin + grc_manager ────────────────
+  const canViewAudit = currentUser?.role === "admin" || currentUser?.role === "grc_manager";
+  if (!canViewAudit) {
+    return (
+      <AppShell>
+        <div className="flex flex-col items-center justify-center h-64 text-center gap-3">
+          <ShieldCheckIcon className="w-12 h-12 text-gray-300" />
+          <h2 className="text-lg font-semibold text-gray-700">Access restricted</h2>
+          <p className="text-sm text-gray-400">The audit trail is only accessible to administrators and GRC managers.</p>
+        </div>
+      </AppShell>
+    );
+  }
 
   // Filters
   const [filterResource, setFilterResource] = useState("");
   const [filterAction, setFilterAction]     = useState("");
   const [filterActor, setFilterActor]       = useState("");
 
-  const load = useCallback(async (p = 0) => {
+  const load = useCallback(async (p = 1, size = pageSize) => {
     setLoading(true);
     setError(null);
     try {
@@ -74,8 +94,8 @@ export default function AuditLogsPage() {
         resource_type: filterResource || undefined,
         action:        filterAction   || undefined,
         actor_email:   filterActor    || undefined,
-        limit:  PAGE_SIZE,
-        offset: p * PAGE_SIZE,
+        limit:  size,
+        offset: (p - 1) * size,   // convert 1-indexed page to 0-based offset
       });
       setItems(res.data.items);
       setTotal(res.data.total);
@@ -85,11 +105,9 @@ export default function AuditLogsPage() {
     } finally {
       setLoading(false);
     }
-  }, [filterResource, filterAction, filterActor]);
+  }, [filterResource, filterAction, filterActor, pageSize]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  useEffect(() => { load(0); }, [load]);
-
-  const totalPages = Math.ceil(total / PAGE_SIZE);
+  useEffect(() => { load(1); }, [load]);
 
   return (
     <AppShell>
@@ -216,29 +234,16 @@ export default function AuditLogsPage() {
         </div>
 
         {/* Pagination */}
-        {totalPages > 1 && (
-          <div className="flex items-center justify-between mt-4 text-sm text-gray-600">
-            <span>
-              Showing {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, total)} of {total.toLocaleString()}
-            </span>
-            <div className="flex gap-2">
-              <button
-                onClick={() => load(page - 1)}
-                disabled={page === 0}
-                className="px-3 py-1 border rounded-lg disabled:opacity-40 hover:bg-gray-50"
-              >
-                ← Prev
-              </button>
-              <button
-                onClick={() => load(page + 1)}
-                disabled={page >= totalPages - 1}
-                className="px-3 py-1 border rounded-lg disabled:opacity-40 hover:bg-gray-50"
-              >
-                Next →
-              </button>
-            </div>
-          </div>
-        )}
+        <div className="mt-2 border border-gray-200 rounded-xl overflow-hidden">
+          <Pagination
+            total={total}
+            page={page}
+            pageSize={pageSize}
+            onPageChange={(p) => load(p, pageSize)}
+            onPageSizeChange={(s) => { setPageSize(s); load(1, s); }}
+            itemLabel="event"
+          />
+        </div>
       </div>
     </AppShell>
   );

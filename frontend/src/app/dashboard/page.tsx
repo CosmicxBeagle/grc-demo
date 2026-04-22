@@ -1,64 +1,208 @@
 "use client";
-import { useEffect, useState } from "react";
+
+import { useEffect, useState, type ReactNode } from "react";
 import AppShell from "@/components/AppShell";
 import { dashboardApi } from "@/lib/api";
-import type { DashboardStats } from "@/types";
-import { getUser } from "@/lib/auth";
+import type { DashboardStats, PciTestingBreakdown, RiskAgingBuckets } from "@/types";
 import {
-  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
-  PieChart, Pie, Cell, Legend, RadialBarChart, RadialBar,
+  ResponsiveContainer,
+  PieChart,
+  Pie,
+  Cell,
+  Tooltip,
+  Legend,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
 } from "recharts";
-import type { PciTestingBreakdown, RiskAgingBuckets } from "@/types";
+import {
+  ClipboardDocumentListIcon,
+  DocumentDuplicateIcon,
+  RectangleStackIcon,
+  ShieldCheckIcon,
+} from "@heroicons/react/24/outline";
+import { FRAMEWORK_HEX } from "@/lib/design-tokens";
 
 const STATUS_COLORS: Record<string, string> = {
-  "Not Started": "#e5e7eb",
-  "In Progress": "#3b82f6",
+  "Not Started": "#cbd5e1",
+  "In Progress": "#2563eb",
   "Needs Review": "#f59e0b",
-  "Complete":    "#22c55e",
+  Complete:       "#10b981",
 };
 
-const FRAMEWORK_COLORS = ["#7c3aed", "#0891b2", "#ea580c", "#e11d48"];
-
 const AGING_BUCKETS = [
-  { key: "0_30",    label: "0 – 30 days",    color: "#22c55e" },  // green — fresh
-  { key: "30_60",   label: "30 – 60 days",   color: "#84cc16" },  // lime
-  { key: "60_90",   label: "60 – 90 days",   color: "#f59e0b" },  // amber
-  { key: "90_180",  label: "90 – 180 days",  color: "#f97316" },  // orange
-  { key: "180_365", label: "180 – 365 days", color: "#ef4444" },  // red
-  { key: "365_plus",label: "365+ days",      color: "#7f1d1d" },  // dark red — critical
+  { key: "0_30", label: "0 - 30 days", color: "#22c55e" },
+  { key: "30_60", label: "30 - 60 days", color: "#84cc16" },
+  { key: "60_90", label: "60 - 90 days", color: "#f59e0b" },
+  { key: "90_180", label: "90 - 180 days", color: "#f97316" },
+  { key: "180_365", label: "180 - 365 days", color: "#ef4444" },
+  { key: "365_plus", label: "365+ days", color: "#7f1d1d" },
 ] as const;
 
 const PCI_STATUS_CONFIG = [
-  { key: "complete",     label: "Complete",     color: "#22c55e" },
+  { key: "complete", label: "Complete", color: "#10b981" },
   { key: "needs_review", label: "Needs Review", color: "#f59e0b" },
-  { key: "in_progress",  label: "In Progress",  color: "#3b82f6" },
-  { key: "not_started",  label: "Not Started",  color: "#d1d5db" },
-  { key: "failed",       label: "Failed",       color: "#ef4444" },
-  { key: "never_tested", label: "Never Tested", color: "#e5e7eb" },
+  { key: "in_progress", label: "In Progress", color: "#2563eb" },
+  { key: "not_started", label: "Not Started", color: "#cbd5e1" },
+  { key: "failed", label: "Failed", color: "#ef4444" },
+  { key: "never_tested", label: "Never Tested", color: "#94a3b8" },
 ] as const;
 
-function StatCard({ label, value, sub }: { label: string; value: number; sub?: string }) {
+function Surface({
+  title,
+  eyebrow,
+  children,
+  right,
+}: {
+  title: string;
+  eyebrow?: string;
+  children: ReactNode;
+  right?: ReactNode;
+}) {
   return (
-    <div className="bg-white rounded-xl border border-gray-200 p-6">
-      <p className="text-sm text-gray-500">{label}</p>
-      <p className="text-3xl font-bold text-gray-900 mt-1">{value}</p>
-      {sub && <p className="text-xs text-gray-400 mt-1">{sub}</p>}
+    <section className="rounded-[28px] border border-slate-200/70 bg-white/90 p-6 shadow-[0_24px_80px_-48px_rgba(15,23,42,0.45)] backdrop-blur">
+      <div className="mb-5 flex items-start justify-between gap-4">
+        <div>
+          {eyebrow ? (
+            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">{eyebrow}</p>
+          ) : null}
+          <h2 className="mt-1 text-lg font-semibold text-slate-900">{title}</h2>
+        </div>
+        {right}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function OverviewCard({
+  label,
+  value,
+  sub,
+  icon,
+  tone,
+}: {
+  label: string;
+  value: number;
+  sub?: string;
+  icon: ReactNode;
+  tone: "teal" | "blue" | "amber" | "rose";
+}) {
+  const toneClasses = {
+    teal: "from-teal-500/15 to-emerald-500/5 text-teal-700 ring-teal-200",
+    blue: "from-blue-500/15 to-cyan-500/5 text-blue-700 ring-blue-200",
+    amber: "from-amber-500/15 to-orange-500/5 text-amber-700 ring-amber-200",
+    rose: "from-rose-500/15 to-red-500/5 text-rose-700 ring-rose-200",
+  }[tone];
+
+  return (
+    <div className={`rounded-[24px] border border-slate-200 bg-gradient-to-br ${toneClasses} p-5 shadow-sm`}>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <p className="text-sm font-medium text-slate-500">{label}</p>
+          <p className="mt-2 text-3xl font-semibold tracking-tight text-slate-950">{value}</p>
+          {sub ? <p className="mt-1 text-xs text-slate-500">{sub}</p> : null}
+        </div>
+        <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-white/80 ring-1 ring-inset ring-white/80">
+          {icon}
+        </div>
+      </div>
     </div>
+  );
+}
+
+function PriorityTile({
+  href,
+  label,
+  value,
+  caption,
+  tone,
+}: {
+  href: string;
+  label: string;
+  value: number;
+  caption: string;
+  tone: "amber" | "emerald" | "rose";
+}) {
+  const toneClasses = {
+    amber: "border-amber-200 bg-amber-50/80 text-amber-900",
+    emerald: "border-emerald-200 bg-emerald-50/80 text-emerald-900",
+    rose: "border-rose-200 bg-rose-50/80 text-rose-900",
+  }[tone];
+
+  return (
+    <a
+      href={href}
+      className={`group rounded-[24px] border p-5 transition-transform duration-150 hover:-translate-y-0.5 ${toneClasses}`}
+    >
+      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] opacity-70">{label}</p>
+      <div className="mt-3 flex items-end justify-between gap-3">
+        <div>
+          <p className="text-3xl font-semibold">{value}</p>
+          <p className="mt-1 text-sm opacity-75">{caption}</p>
+        </div>
+        <span className="text-xs font-medium opacity-70 transition-opacity group-hover:opacity-100">Open -&gt;</span>
+      </div>
+    </a>
   );
 }
 
 export default function DashboardPage() {
   const [stats, setStats] = useState<DashboardStats | null>(null);
-  const user = getUser();
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
   useEffect(() => {
-    dashboardApi.stats().then((r) => setStats(r.data)).catch(() => {});
+    dashboardApi
+      .stats()
+      .then((response) => setStats(response.data))
+      .catch((e) => setError(e?.response?.data?.detail ?? "Failed to load dashboard data."))
+      .finally(() => setLoading(false));
   }, []);
 
-  if (!stats) {
+  if (loading) {
     return (
       <AppShell>
-        <div className="flex items-center justify-center h-64 text-gray-400">Loading…</div>
+        <div className="mx-auto max-w-7xl">
+          <div className="animate-pulse space-y-6">
+            <div className="h-44 rounded-[32px] bg-slate-200/70" />
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+              {Array.from({ length: 4 }).map((_, index) => (
+                <div key={index} className="h-32 rounded-[24px] bg-slate-200/70" />
+              ))}
+            </div>
+            <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+              <div className="h-80 rounded-[28px] bg-slate-200/70" />
+              <div className="h-80 rounded-[28px] bg-slate-200/70" />
+            </div>
+          </div>
+        </div>
+      </AppShell>
+    );
+  }
+
+  if (error || !stats) {
+    return (
+      <AppShell>
+        <div className="mx-auto max-w-4xl pt-16 text-center">
+          <p className="mb-3 text-sm text-red-500">{error || "No data returned."}</p>
+          <button
+            onClick={() => {
+              setLoading(true);
+              setError("");
+              dashboardApi
+                .stats()
+                .then((response) => setStats(response.data))
+                .catch((e) => setError(e?.response?.data?.detail ?? "Failed to load dashboard data."))
+                .finally(() => setLoading(false));
+            }}
+            className="text-sm font-medium text-blue-600 hover:underline"
+          >
+            Retry
+          </button>
+        </div>
       </AppShell>
     );
   }
@@ -67,347 +211,249 @@ export default function DashboardPage() {
     { name: "Not Started", value: stats.not_started },
     { name: "In Progress", value: stats.in_progress },
     { name: "Needs Review", value: stats.needs_review },
-    { name: "Complete",    value: stats.complete },
+    { name: "Complete", value: stats.complete },
   ];
 
-  const frameworkData = Object.entries(stats.framework_coverage).map(([k, v]) => ({
-    name: k, controls: v,
+  const frameworkData = Object.entries(stats.framework_coverage).map(([name, controls]) => ({
+    name,
+    controls,
   }));
+
+  const completionRate =
+    stats.total_assignments > 0 ? Math.round((stats.complete / stats.total_assignments) * 100) : 0;
+
+  const pciChartData = PCI_STATUS_CONFIG.map(({ key, label, color }) => ({
+    name: label,
+    value: stats.pci_testing[key as keyof PciTestingBreakdown] as number,
+    fill: color,
+  })).filter((entry) => entry.value > 0);
+
+  const deficiencyData = [
+    { name: "Open", value: stats.deficiency_open, fill: "#ef4444" },
+    { name: "In Remediation", value: stats.deficiency_in_remediation, fill: "#f97316" },
+    { name: "Remediated", value: stats.deficiency_remediated, fill: "#10b981" },
+    { name: "Risk Accepted", value: stats.deficiency_risk_accepted, fill: "#94a3b8" },
+  ];
+
+  const agingData = AGING_BUCKETS.map(({ key, label, color }) => ({
+    name: label,
+    value: stats.risk_aging[key as keyof RiskAgingBuckets],
+    fill: color,
+  }));
+
+  const staleRisks = stats.risk_aging["180_365"] + stats.risk_aging["365_plus"];
 
   return (
     <AppShell>
-      <div className="max-w-6xl mx-auto space-y-8">
-        {/* Header */}
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
-          <p className="text-gray-500 mt-1">
-            Welcome back, {user?.display_name} · {new Date().toLocaleDateString("en-US", { dateStyle: "long" })}
-          </p>
+      <div className="mx-auto max-w-7xl space-y-6">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 2xl:grid-cols-4">
+          <OverviewCard label="Total Controls" value={stats.total_controls} sub={`${stats.active_controls} currently active`} tone="teal" icon={<ShieldCheckIcon className="h-6 w-6" />} />
+          <OverviewCard label="Test Cycles" value={stats.total_test_cycles} sub={`${stats.active_test_cycles} active cycles in motion`} tone="blue" icon={<RectangleStackIcon className="h-6 w-6" />} />
+          <OverviewCard label="Total Assignments" value={stats.total_assignments} sub={`${stats.in_progress} actively in progress`} tone="amber" icon={<ClipboardDocumentListIcon className="h-6 w-6" />} />
+          <OverviewCard label="Evidence Files" value={stats.total_evidence} sub="Supporting documentation on file" tone="rose" icon={<DocumentDuplicateIcon className="h-6 w-6" />} />
         </div>
 
-        {/* Top stats */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          <StatCard label="Total Controls"     value={stats.total_controls}     sub={`${stats.active_controls} active`} />
-          <StatCard label="Test Cycles"        value={stats.total_test_cycles}  sub={`${stats.active_test_cycles} active`} />
-          <StatCard label="Total Assignments"  value={stats.total_assignments}  />
-          <StatCard label="Evidence Files"     value={stats.total_evidence}     />
+        <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+          <PriorityTile href="/exceptions" label="Immediate Attention" value={stats.exception_pending} caption="exceptions waiting for approval" tone="amber" />
+          <PriorityTile href="/exceptions?status=approved" label="Governance Coverage" value={stats.exception_approved} caption="approved exceptions remain active" tone="emerald" />
+          <PriorityTile href="/exceptions" label="Time Sensitive" value={stats.exception_expiring_soon} caption="exceptions expiring within 30 days" tone="rose" />
         </div>
 
-        {/* Exceptions alert row — only shown when there's something to act on */}
-        {(stats.exception_pending > 0 || stats.exception_expiring_soon > 0) && (
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <a href="/exceptions" className="group flex items-center gap-4 bg-white border border-yellow-200 rounded-xl p-5 hover:shadow-sm transition-shadow">
-              <div className="w-10 h-10 rounded-lg bg-yellow-100 flex items-center justify-center shrink-0">
-                <svg className="w-5 h-5 text-yellow-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" /></svg>
+        <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1.05fr_0.95fr]">
+          <Surface eyebrow="Execution" title="Testing Momentum" right={<div className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">{completionRate}% complete</div>}>
+            <div className="grid gap-6 lg:grid-cols-[0.95fr_1.05fr]">
+              <div className="h-[260px]">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie data={statusData} dataKey="value" nameKey="name" innerRadius={62} outerRadius={92} paddingAngle={3}>
+                      {statusData.map((entry) => (
+                        <Cell key={entry.name} fill={STATUS_COLORS[entry.name]} />
+                      ))}
+                    </Pie>
+                    <Tooltip />
+                    <Legend verticalAlign="bottom" iconType="circle" />
+                  </PieChart>
+                </ResponsiveContainer>
               </div>
-              <div>
-                <p className="text-2xl font-bold text-gray-900">{stats.exception_pending}</p>
-                <p className="text-xs text-gray-500">Exceptions Awaiting Approval</p>
-              </div>
-            </a>
 
-            <a href="/exceptions?status=approved" className="group flex items-center gap-4 bg-white border border-green-200 rounded-xl p-5 hover:shadow-sm transition-shadow">
-              <div className="w-10 h-10 rounded-lg bg-green-100 flex items-center justify-center shrink-0">
-                <svg className="w-5 h-5 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-              </div>
-              <div>
-                <p className="text-2xl font-bold text-gray-900">{stats.exception_approved}</p>
-                <p className="text-xs text-gray-500">Active Approved Exceptions</p>
-              </div>
-            </a>
-
-            {stats.exception_expiring_soon > 0 && (
-              <a href="/exceptions" className="group flex items-center gap-4 bg-white border border-red-200 rounded-xl p-5 hover:shadow-sm transition-shadow">
-                <div className="w-10 h-10 rounded-lg bg-red-100 flex items-center justify-center shrink-0">
-                  <svg className="w-5 h-5 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                </div>
-                <div>
-                  <p className="text-2xl font-bold text-red-600">{stats.exception_expiring_soon}</p>
-                  <p className="text-xs text-gray-500">Exceptions Expiring Within 30 Days</p>
-                </div>
-              </a>
-            )}
-          </div>
-        )}
-
-        {/* Charts row */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Testing status pie */}
-          <div className="bg-white rounded-xl border border-gray-200 p-6">
-            <h2 className="text-sm font-semibold text-gray-700 mb-4">Assignment Status</h2>
-            <ResponsiveContainer width="100%" height={220}>
-              <PieChart>
-                <Pie
-                  data={statusData}
-                  dataKey="value"
-                  nameKey="name"
-                  cx="50%"
-                  cy="50%"
-                  outerRadius={80}
-                  label={({ name, value }) => value > 0 ? `${name}: ${value}` : ""}
-                >
-                  {statusData.map((entry) => (
-                    <Cell key={entry.name} fill={STATUS_COLORS[entry.name]} />
-                  ))}
-                </Pie>
-                <Legend />
-                <Tooltip />
-              </PieChart>
-            </ResponsiveContainer>
-          </div>
-
-          {/* Framework coverage bar */}
-          <div className="bg-white rounded-xl border border-gray-200 p-6">
-            <h2 className="text-sm font-semibold text-gray-700 mb-4">Framework Coverage (controls mapped)</h2>
-            <ResponsiveContainer width="100%" height={220}>
-              <BarChart data={frameworkData} barSize={40}>
-                <XAxis dataKey="name" />
-                <YAxis allowDecimals={false} />
-                <Tooltip />
-                <Bar dataKey="controls" radius={[4, 4, 0, 0]}>
-                  {frameworkData.map((_, i) => (
-                    <Cell key={i} fill={FRAMEWORK_COLORS[i % FRAMEWORK_COLORS.length]} />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-
-        {/* PCI DSS Testing Progress */}
-        {stats.pci_testing && stats.pci_testing.total > 0 && (
-          <div className="bg-white rounded-xl border border-gray-200 p-6">
-            <div className="flex items-center justify-between mb-5">
-              <div>
-                <h2 className="text-sm font-semibold text-gray-700">PCI DSS Control Testing</h2>
-                <p className="text-xs text-gray-400 mt-0.5">{stats.pci_testing.total} controls in scope</p>
-              </div>
-              <div className="text-right">
-                <p className="text-2xl font-bold text-green-600">{stats.pci_testing.complete}</p>
-                <p className="text-xs text-gray-400">tested complete</p>
-              </div>
-            </div>
-
-            {/* Progress bar */}
-            <div className="mb-5">
-              <div className="flex h-5 rounded-full overflow-hidden bg-gray-100 gap-px">
-                {PCI_STATUS_CONFIG.map(({ key, color }) => {
-                  const val = stats.pci_testing[key as keyof PciTestingBreakdown] as number;
-                  const pct = (val / stats.pci_testing.total) * 100;
-                  return pct > 0 ? (
-                    <div
-                      key={key}
-                      style={{ width: `${pct}%`, backgroundColor: color }}
-                      title={`${PCI_STATUS_CONFIG.find(c => c.key === key)?.label}: ${val}`}
-                      className="transition-all"
-                    />
-                  ) : null;
-                })}
-              </div>
-              <div className="flex flex-wrap gap-x-4 gap-y-1.5 mt-3">
-                {PCI_STATUS_CONFIG.map(({ key, label, color }) => {
-                  const val = stats.pci_testing[key as keyof PciTestingBreakdown] as number;
-                  return val > 0 ? (
-                    <div key={key} className="flex items-center gap-1.5 text-xs text-gray-600">
-                      <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: color }} />
-                      {label}: <b>{val}</b>
-                    </div>
-                  ) : null;
-                })}
-              </div>
-            </div>
-
-            {/* Bar chart */}
-            <ResponsiveContainer width="100%" height={160}>
-              <BarChart
-                data={PCI_STATUS_CONFIG.map(({ key, label, color }) => ({
-                  name: label,
-                  value: stats.pci_testing[key as keyof PciTestingBreakdown] as number,
-                  fill: color,
-                })).filter(d => d.value > 0)}
-                barSize={44}
-                margin={{ top: 4, right: 0, left: -20, bottom: 0 }}
-              >
-                <XAxis dataKey="name" tick={{ fontSize: 10 }} />
-                <YAxis allowDecimals={false} tick={{ fontSize: 10 }} />
-                <Tooltip
-                  formatter={(value: number, name: string) => [value, "Controls"]}
-                  labelFormatter={(l) => `${l}`}
-                />
-                <Bar dataKey="value" radius={[4, 4, 0, 0]}>
-                  {PCI_STATUS_CONFIG.map(({ key, color }) => (
-                    <Cell key={key} fill={color} />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        )}
-
-        {/* Deficiency status */}
-        {(stats.deficiency_open + stats.deficiency_in_remediation + stats.deficiency_remediated + stats.deficiency_risk_accepted) > 0 && (
-          <div className="bg-white rounded-xl border border-gray-200 p-6">
-            <h2 className="text-sm font-semibold text-gray-700 mb-4">Deficiency Status</h2>
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-              {[
-                { label: "Open",           value: stats.deficiency_open,           color: "#ef4444" },
-                { label: "In Remediation", value: stats.deficiency_in_remediation, color: "#f97316" },
-                { label: "Remediated",     value: stats.deficiency_remediated,     color: "#22c55e" },
-                { label: "Risk Accepted",  value: stats.deficiency_risk_accepted,  color: "#9ca3af" },
-              ].map(({ label, value, color }) => (
-                <div key={label} className="flex items-center gap-3">
-                  <div className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: color }} />
-                  <div>
-                    <p className="text-2xl font-bold text-gray-900">{value}</p>
-                    <p className="text-xs text-gray-500">{label}</p>
+              <div className="space-y-4">
+                <div className="rounded-[22px] bg-slate-50 p-4">
+                  <div className="mb-3 flex items-center justify-between text-sm">
+                    <span className="font-medium text-slate-700">Overall assignment completion</span>
+                    <span className="font-semibold text-slate-900">{completionRate}%</span>
+                  </div>
+                  <div className="flex h-4 overflow-hidden rounded-full bg-white ring-1 ring-slate-200">
+                    {statusData.map((status) =>
+                      status.value > 0 ? (
+                        <div
+                          key={status.name}
+                          style={{
+                            width: `${(status.value / Math.max(stats.total_assignments, 1)) * 100}%`,
+                            backgroundColor: STATUS_COLORS[status.name],
+                          }}
+                          title={`${status.name}: ${status.value}`}
+                        />
+                      ) : null
+                    )}
                   </div>
                 </div>
-              ))}
-            </div>
-            <ResponsiveContainer width="100%" height={180}>
-              <BarChart
-                data={[
-                  { name: "Open",           value: stats.deficiency_open,           fill: "#ef4444" },
-                  { name: "In Remediation", value: stats.deficiency_in_remediation, fill: "#f97316" },
-                  { name: "Remediated",     value: stats.deficiency_remediated,     fill: "#22c55e" },
-                  { name: "Risk Accepted",  value: stats.deficiency_risk_accepted,  fill: "#9ca3af" },
-                ]}
-                barSize={48}
-              >
-                <XAxis dataKey="name" tick={{ fontSize: 11 }} />
-                <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
-                <Tooltip />
-                <Bar dataKey="value" radius={[4, 4, 0, 0]}>
-                  {[
-                    { fill: "#ef4444" },
-                    { fill: "#f97316" },
-                    { fill: "#22c55e" },
-                    { fill: "#9ca3af" },
-                  ].map((entry, i) => (
-                    <Cell key={i} fill={entry.fill} />
+
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {statusData.map((status) => (
+                    <div key={status.name} className="rounded-[20px] border border-slate-200 bg-white p-4">
+                      <div className="flex items-center gap-2">
+                        <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: STATUS_COLORS[status.name] }} />
+                        <p className="text-sm font-medium text-slate-700">{status.name}</p>
+                      </div>
+                      <p className="mt-3 text-2xl font-semibold text-slate-950">{status.value}</p>
+                    </div>
                   ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        )}
-
-        {/* Risk Aging — always visible */}
-        {stats.risk_aging && (
-          <div className="bg-white rounded-xl border border-gray-200 p-6">
-            {/* Header */}
-            <div className="flex items-center justify-between mb-5">
-              <div>
-                <h2 className="text-sm font-semibold text-gray-700">Risk Age Distribution</h2>
-                <p className="text-xs text-gray-400 mt-0.5">How long open risks have been on the register</p>
+                </div>
               </div>
-              {(stats.risk_aging["180_365"] + stats.risk_aging["365_plus"]) > 0 && (
-                <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-red-700 bg-red-50 border border-red-200 rounded-full px-3 py-1">
-                  <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse shrink-0" />
-                  {stats.risk_aging["180_365"] + stats.risk_aging["365_plus"]} risk{(stats.risk_aging["180_365"] + stats.risk_aging["365_plus"]) !== 1 ? "s" : ""} over 180 days
-                </span>
-              )}
             </div>
+          </Surface>
 
-            {/* Bucket summary cards */}
-            <div className="grid grid-cols-3 lg:grid-cols-6 gap-3 mb-5">
+          <Surface eyebrow="Coverage" title="Framework Mapping Depth">
+            <div className="h-[320px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={frameworkData} barSize={42} margin={{ top: 10, right: 8, left: -16, bottom: 0 }}>
+                  <CartesianGrid stroke="#e2e8f0" strokeDasharray="3 3" vertical={false} />
+                  <XAxis dataKey="name" tick={{ fontSize: 12, fill: "#475569" }} axisLine={false} tickLine={false} />
+                  <YAxis allowDecimals={false} tick={{ fontSize: 12, fill: "#64748b" }} axisLine={false} tickLine={false} />
+                  <Tooltip />
+                  <Bar dataKey="controls" radius={[10, 10, 0, 0]}>
+                    {frameworkData.map((entry) => (
+                      <Cell key={entry.name} fill={FRAMEWORK_HEX[entry.name] ?? "#64748b"} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </Surface>
+        </div>
+
+        {stats.pci_testing && stats.pci_testing.total > 0 ? (
+          <Surface eyebrow="Program Focus" title="PCI DSS Testing Snapshot" right={<div className="text-right"><p className="text-3xl font-semibold text-emerald-600">{stats.pci_testing.complete}</p><p className="text-xs uppercase tracking-[0.18em] text-slate-400">complete</p></div>}>
+            <div className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
+              <div>
+                <div className="mb-4 flex items-center justify-between text-sm">
+                  <span className="text-slate-500">{stats.pci_testing.total} controls in PCI scope</span>
+                  <span className="font-medium text-slate-700">{Math.round((stats.pci_testing.complete / stats.pci_testing.total) * 100)}% validated</span>
+                </div>
+                <div className="mb-4 flex h-5 overflow-hidden rounded-full bg-slate-100">
+                  {PCI_STATUS_CONFIG.map(({ key, color }) => {
+                    const value = stats.pci_testing[key as keyof PciTestingBreakdown] as number;
+                    const width = (value / stats.pci_testing.total) * 100;
+                    return width > 0 ? <div key={key} style={{ width: `${width}%`, backgroundColor: color }} title={`${key}: ${value}`} /> : null;
+                  })}
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                  {PCI_STATUS_CONFIG.map(({ key, label, color }) => {
+                    const value = stats.pci_testing[key as keyof PciTestingBreakdown] as number;
+                    return (
+                      <div key={key} className="rounded-[18px] bg-slate-50 p-3">
+                        <div className="flex items-center gap-2">
+                          <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: color }} />
+                          <span className="text-xs font-medium uppercase tracking-[0.14em] text-slate-500">{label}</span>
+                        </div>
+                        <p className="mt-2 text-2xl font-semibold text-slate-950">{value}</p>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="h-[300px]">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={pciChartData} barSize={30} margin={{ top: 10, right: 0, left: -20, bottom: 0 }}>
+                    <CartesianGrid stroke="#e2e8f0" strokeDasharray="3 3" vertical={false} />
+                    <XAxis dataKey="name" tick={{ fontSize: 11, fill: "#475569" }} axisLine={false} tickLine={false} />
+                    <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "#64748b" }} axisLine={false} tickLine={false} />
+                    <Tooltip />
+                    <Bar dataKey="value" radius={[10, 10, 0, 0]}>
+                      {pciChartData.map((entry) => (
+                        <Cell key={entry.name} fill={entry.fill} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          </Surface>
+        ) : null}
+
+        <div className="grid grid-cols-1 gap-6 xl:grid-cols-[0.95fr_1.05fr]">
+          {deficiencyData.some((entry) => entry.value > 0) ? (
+            <Surface eyebrow="Issue Health" title="Deficiency Status">
+              <div className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
+                {deficiencyData.map(({ name, value, fill }) => (
+                  <div key={name} className="rounded-[20px] border border-slate-200 bg-slate-50 p-4">
+                    <div className="flex items-center gap-2">
+                      <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: fill }} />
+                      <span className="text-xs font-medium uppercase tracking-[0.14em] text-slate-500">{name}</span>
+                    </div>
+                    <p className="mt-3 text-2xl font-semibold text-slate-950">{value}</p>
+                  </div>
+                ))}
+              </div>
+              <div className="h-[240px]">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={deficiencyData} barSize={44}>
+                    <CartesianGrid stroke="#e2e8f0" strokeDasharray="3 3" vertical={false} />
+                    <XAxis dataKey="name" tick={{ fontSize: 11, fill: "#475569" }} axisLine={false} tickLine={false} />
+                    <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "#64748b" }} axisLine={false} tickLine={false} />
+                    <Tooltip />
+                    <Bar dataKey="value" radius={[10, 10, 0, 0]}>
+                      {deficiencyData.map((entry) => (
+                        <Cell key={entry.name} fill={entry.fill} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </Surface>
+          ) : null}
+
+        </div>
+
+        {stats.risk_aging ? (
+          <Surface eyebrow="Register Health" title="Risk Age Distribution" right={staleRisks > 0 ? <span className="inline-flex items-center gap-1.5 rounded-full border border-red-200 bg-red-50 px-3 py-1 text-xs font-semibold text-red-700">{staleRisks} risks over 180 days</span> : null}>
+            <div className="mb-5 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
               {AGING_BUCKETS.map(({ key, label, color }) => {
-                const val = stats.risk_aging[key as keyof RiskAgingBuckets];
+                const value = stats.risk_aging[key as keyof RiskAgingBuckets];
                 return (
-                  <div key={key} className="rounded-lg border border-gray-100 p-3 text-center" style={{ borderTopWidth: 3, borderTopColor: color }}>
-                    <p className="text-2xl font-bold text-gray-900">{val}</p>
-                    <p className="text-xs text-gray-500 mt-0.5 leading-tight">{label}</p>
+                  <div key={key} className="rounded-[18px] border border-slate-200 bg-white p-4" style={{ borderTopWidth: 3, borderTopColor: color }}>
+                    <p className="text-2xl font-semibold text-slate-950">{value}</p>
+                    <p className="mt-1 text-xs text-slate-500">{label}</p>
                   </div>
                 );
               })}
             </div>
-
-            {/* Stacked proportion bar */}
-            {(() => {
-              const total = Object.values(stats.risk_aging).reduce((a, b) => a + b, 0);
-              return total > 0 ? (
-                <div className="mb-5">
-                  <div className="flex h-4 rounded-full overflow-hidden bg-gray-100 gap-px">
-                    {AGING_BUCKETS.map(({ key, color, label }) => {
-                      const val = stats.risk_aging[key as keyof RiskAgingBuckets];
-                      const pct = (val / total) * 100;
-                      return pct > 0 ? (
-                        <div
-                          key={key}
-                          style={{ width: `${pct}%`, backgroundColor: color }}
-                          title={`${label}: ${val} (${pct.toFixed(0)}%)`}
-                          className="transition-all"
-                        />
-                      ) : null;
-                    })}
-                  </div>
-                </div>
-              ) : (
-                <p className="text-sm text-gray-400 text-center py-4">No open risks yet.</p>
-              );
-            })()}
-
-            {/* Bar chart */}
-            <ResponsiveContainer width="100%" height={180}>
-              <BarChart
-                data={AGING_BUCKETS.map(({ key, label, color }) => ({
-                  name: label,
-                  value: stats.risk_aging[key as keyof RiskAgingBuckets],
-                  fill: color,
-                }))}
-                barSize={48}
-                margin={{ top: 4, right: 0, left: -20, bottom: 0 }}
-              >
-                <XAxis dataKey="name" tick={{ fontSize: 10 }} />
-                <YAxis allowDecimals={false} tick={{ fontSize: 10 }} />
-                <Tooltip formatter={(v: number) => [v, "Risks"]} />
-                <Bar dataKey="value" radius={[4, 4, 0, 0]}>
-                  {AGING_BUCKETS.map(({ key, color }) => (
-                    <Cell key={key} fill={color} />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        )}
-
-        {/* Progress summary */}
-        <div className="bg-white rounded-xl border border-gray-200 p-6">
-          <h2 className="text-sm font-semibold text-gray-700 mb-4">Overall Test Completion</h2>
-          {stats.total_assignments > 0 ? (
-            <>
-              <div className="flex items-center gap-3 mb-2">
-                <div className="flex-1 bg-gray-100 rounded-full h-4 overflow-hidden flex">
-                  {statusData.map((s) => (
-                    s.value > 0 && (
-                      <div
-                        key={s.name}
-                        style={{
-                          width: `${(s.value / stats.total_assignments) * 100}%`,
-                          backgroundColor: STATUS_COLORS[s.name],
-                        }}
-                        title={`${s.name}: ${s.value}`}
-                      />
-                    )
-                  ))}
-                </div>
-                <span className="text-sm font-semibold text-gray-700 w-12 text-right">
-                  {Math.round((stats.complete / stats.total_assignments) * 100)}%
-                </span>
-              </div>
-              <div className="flex flex-wrap gap-4 mt-3">
-                {statusData.map((s) => (
-                  <div key={s.name} className="flex items-center gap-1.5 text-xs text-gray-600">
-                    <span className="w-3 h-3 rounded-full" style={{ backgroundColor: STATUS_COLORS[s.name] }} />
-                    {s.name}: <b>{s.value}</b>
-                  </div>
-                ))}
-              </div>
-            </>
-          ) : (
-            <p className="text-sm text-gray-400">No assignments yet.</p>
-          )}
-        </div>
+            <div className="mb-5 flex h-4 overflow-hidden rounded-full bg-slate-100">
+              {AGING_BUCKETS.map(({ key, color, label }) => {
+                const value = stats.risk_aging[key as keyof RiskAgingBuckets];
+                const total = Object.values(stats.risk_aging).reduce((sum, bucket) => sum + bucket, 0);
+                const width = total > 0 ? (value / total) * 100 : 0;
+                return width > 0 ? <div key={key} style={{ width: `${width}%`, backgroundColor: color }} title={`${label}: ${value}`} /> : null;
+              })}
+            </div>
+            <div className="h-[220px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={agingData} barSize={42} margin={{ top: 10, right: 0, left: -20, bottom: 0 }}>
+                  <CartesianGrid stroke="#e2e8f0" strokeDasharray="3 3" vertical={false} />
+                  <XAxis dataKey="name" tick={{ fontSize: 10, fill: "#475569" }} axisLine={false} tickLine={false} />
+                  <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "#64748b" }} axisLine={false} tickLine={false} />
+                  <Tooltip />
+                  <Bar dataKey="value" radius={[10, 10, 0, 0]}>
+                    {agingData.map((entry) => (
+                      <Cell key={entry.name} fill={entry.fill} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </Surface>
+        ) : null}
       </div>
     </AppShell>
   );

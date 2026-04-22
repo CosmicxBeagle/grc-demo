@@ -2,17 +2,13 @@
 Risk Review Service
 
 Orchestrates risk review cycles.  Which risks are included is driven by
-min_score on the cycle record — not by a hardcoded cadence label:
-
-  min_score = 0   → all risks with an assigned owner
-  min_score = 4   → medium and above  (score >= 4)
-  min_score = 12  → high and critical (score >= 12)
-  min_score = 20  → critical only     (score >= 20)
+the `severities` field on the cycle (comma-sep: low, medium, high, critical).
 
 Score = likelihood × impact (each 1-5):
   critical  >= 20
-  high      >= 12
-  medium    >=  4
+  high      >= 15
+  medium    >=  9
+  low       <   9
   low        <  4
 """
 from datetime import datetime, timedelta
@@ -53,10 +49,25 @@ def _risk_to_dict(risk: Risk) -> dict:
     }
 
 
-def _in_scope_for_cycle(risk: Risk, min_score: int) -> bool:
-    """Return True if this risk meets the cycle's minimum score threshold."""
-    score = (risk.likelihood or 1) * (risk.impact or 1)
-    return score >= min_score
+def _severity_for_score(score: int) -> str:
+    """Map a numeric score to a severity label."""
+    if score >= 20: return "critical"
+    if score >= 15: return "high"
+    if score >= 9:  return "medium"
+    return "low"
+
+
+def _in_scope_for_cycle(risk: Risk, cycle: "RiskReviewCycle") -> bool:  # type: ignore[name-defined]
+    """Return True if this risk's severity is included in the cycle's selected severities."""
+    score    = (risk.likelihood or 1) * (risk.impact or 1)
+    severity = _severity_for_score(score)
+
+    if cycle.severities:
+        selected = [s.strip() for s in cycle.severities.split(",") if s.strip()]
+        return severity in selected
+
+    # Legacy fallback: use min_score if severities not set
+    return score >= (cycle.min_score or 0)
 
 
 # ── Cycle CRUD ────────────────────────────────────────────────────────────────
@@ -69,6 +80,7 @@ def create_cycle(
     scope_note: Optional[str],
     created_by: int,
     min_score: int = 0,
+    severities: Optional[str] = None,
 ) -> RiskReviewCycle:
     cycle = RiskReviewCycle(
         label      = label,
@@ -77,6 +89,7 @@ def create_cycle(
         scope_note = scope_note,
         created_by = created_by,
         min_score  = min_score,
+        severities = severities,
         status     = "draft",
     )
     db.add(cycle)
@@ -105,78 +118,124 @@ def close_cycle(db: Session, cycle_id: int) -> RiskReviewCycle:
     return cycle
 
 
-# ── Launch ────────────────────────────────────────────────────────────────────
+# ── Populate (auto-launch without sending emails) ─────────────────────────────
 
-def launch_cycle(db: Session, cycle_id: int) -> dict:
+def populate_cycle(db: Session, cycle_id: int) -> dict:
     """
-    Auto-include in-scope risks, create RiskReviewRequests, send emails.
-    Returns summary: { emails_sent, requests_created, skipped_no_owner }.
+    Auto-include in-scope risks and create RiskReviewRequests. Sets status to
+    'active' but does NOT send any emails — owners are notified individually
+    via notify_owner().  Safe to call multiple times (idempotent for existing
+    requests).  Returns { requests_created, skipped_no_owner }.
     """
     cycle = get_cycle(db, cycle_id)
-    if cycle.status != "draft":
-        raise HTTPException(400, "Only draft cycles can be launched")
+    if cycle.status not in ("draft", "active"):
+        raise HTTPException(400, "Cycle is already closed")
 
     risks = db.query(Risk).filter(
         Risk.owner_id.isnot(None),
         Risk.status.notin_(["closed"]),
     ).all()
 
-    in_scope = [r for r in risks if _in_scope_for_cycle(r, cycle.min_score)]
+    in_scope = [r for r in risks if _in_scope_for_cycle(r, cycle)]
     skipped  = len([r for r in db.query(Risk).all() if r.owner_id is None])
 
-    # Group by owner
-    owner_risks: dict[int, list[Risk]] = defaultdict(list)
-    for risk in in_scope:
-        owner_risks[risk.owner_id].append(risk)
-
-    emails_sent = 0
     requests_created = 0
     now = datetime.utcnow()
 
-    for owner_id, owner_risk_list in owner_risks.items():
-        owner = db.query(User).filter(User.id == owner_id).first()
-        if not owner:
+    for risk in in_scope:
+        existing = db.query(RiskReviewRequest).filter(
+            RiskReviewRequest.cycle_id == cycle_id,
+            RiskReviewRequest.risk_id  == risk.id,
+        ).first()
+        if existing:
             continue
-
-        # Create requests
-        for risk in owner_risk_list:
-            # Skip if request already exists for this cycle+risk
-            existing = db.query(RiskReviewRequest).filter(
-                RiskReviewRequest.cycle_id == cycle_id,
-                RiskReviewRequest.risk_id  == risk.id,
-            ).first()
-            if existing:
-                continue
-            req = RiskReviewRequest(
-                cycle_id      = cycle_id,
-                risk_id       = risk.id,
-                owner_id      = owner_id,
-                status        = "pending",
-                email_sent_at = now,
-            )
-            db.add(req)
-            requests_created += 1
-
-        # Build and send one email per owner covering all their risks
-        risk_dicts = [_risk_to_dict(r) for r in owner_risk_list]
-        subject, body = build_risk_review_email(
-            owner_name  = owner.display_name,
-            cycle_label = cycle.label,
-            risks       = risk_dicts,
-            cycle_id    = cycle_id,
+        req = RiskReviewRequest(
+            cycle_id      = cycle_id,
+            risk_id       = risk.id,
+            owner_id      = risk.owner_id,
+            status        = "pending",
+            email_sent_at = None,   # not sent yet
         )
-        if send_email(owner.email, subject, body):
-            emails_sent += 1
+        db.add(req)
+        requests_created += 1
 
-    cycle.status      = "active"
-    cycle.launched_at = now
+    if cycle.status == "draft":
+        cycle.status      = "active"
+        cycle.launched_at = now
+
     db.commit()
 
     return {
-        "emails_sent":       emails_sent,
-        "requests_created":  requests_created,
-        "skipped_no_owner":  skipped,
+        "requests_created": requests_created,
+        "skipped_no_owner": skipped,
     }
+
+
+# ── Per-owner email notification ───────────────────────────────────────────────
+
+def notify_owner(db: Session, cycle_id: int, owner_id: int) -> dict:
+    """
+    Send (or re-send) the review-request email to a single owner covering all
+    their pending risks in this cycle.  Updates email_sent_at on each request.
+    Returns { email_sent: bool, risks_count: int }.
+    """
+    cycle = get_cycle(db, cycle_id)
+    if cycle.status != "active":
+        raise HTTPException(400, "Cycle must be active to send notifications")
+
+    owner = db.query(User).filter(User.id == owner_id).first()
+    if not owner:
+        raise HTTPException(404, f"Owner {owner_id} not found")
+
+    requests = db.query(RiskReviewRequest).filter(
+        RiskReviewRequest.cycle_id == cycle_id,
+        RiskReviewRequest.owner_id == owner_id,
+    ).all()
+
+    if not requests:
+        raise HTTPException(404, "No review requests found for this owner in this cycle")
+
+    risk_dicts = []
+    now = datetime.utcnow()
+    for req in requests:
+        risk = db.query(Risk).filter(Risk.id == req.risk_id).first()
+        if risk:
+            risk_dicts.append(_risk_to_dict(risk))
+        req.email_sent_at = now
+
+    subject, body = build_risk_review_email(
+        owner_name  = owner.display_name,
+        cycle_label = cycle.label,
+        risks       = risk_dicts,
+        cycle_id    = cycle_id,
+    )
+    sent = send_email(owner.email, subject, body)
+    db.commit()
+
+    return {"email_sent": sent, "risks_count": len(risk_dicts)}
+
+
+# ── Legacy launch (kept for backward compat) ──────────────────────────────────
+
+def launch_cycle(db: Session, cycle_id: int) -> dict:
+    """Backward-compat wrapper: populate + notify all owners."""
+    result = populate_cycle(db, cycle_id)
+    cycle  = get_cycle(db, cycle_id)
+
+    owner_ids = db.query(RiskReviewRequest.owner_id).filter(
+        RiskReviewRequest.cycle_id == cycle_id,
+    ).distinct().all()
+
+    emails_sent = 0
+    for (oid,) in owner_ids:
+        try:
+            r = notify_owner(db, cycle_id, oid)
+            if r["email_sent"]:
+                emails_sent += 1
+        except Exception:
+            pass
+
+    return {**result, "emails_sent": emails_sent}
 
 
 # ── Reminders ─────────────────────────────────────────────────────────────────

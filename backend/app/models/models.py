@@ -1,5 +1,5 @@
 from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, Date, Boolean
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import relationship, backref
 from datetime import datetime
 from app.db.database import Base
 
@@ -58,6 +58,11 @@ class User(Base):
     status        = Column(String(20), default="active")   # active | inactive | pending
     last_login_at = Column(DateTime, nullable=True)
 
+    # ── 5A: Deactivation ─────────────────────────────────────────────────────────
+    deactivated_at          = Column(DateTime, nullable=True)
+    deactivated_by_user_id  = Column(Integer, ForeignKey("users.id"), nullable=True)
+    deactivation_reason     = Column(Text, nullable=True)
+
 
 class Control(Base):
     __tablename__ = "controls"
@@ -66,6 +71,9 @@ class Control(Base):
     control_id = Column(String(50), unique=True, nullable=False, index=True)
     title = Column(String(200), nullable=False)
     description = Column(Text)
+    scf_question = Column(Text, nullable=True)
+    scf_domain   = Column(String(200), nullable=True)
+    scf_weight   = Column(Integer, nullable=True)
     control_type = Column(String(50))   # preventive, detective, corrective
     frequency = Column(String(50))      # annual, quarterly, monthly, continuous
     owner = Column(String(100))
@@ -109,6 +117,7 @@ class TestCycle(Base):
     brand = Column(String(50))
     created_by = Column(Integer, ForeignKey("users.id"))
     created_at = Column(DateTime, default=datetime.utcnow)
+    closed_at = Column(DateTime, nullable=True)
 
     creator = relationship("User", foreign_keys=[created_by])
     assignments = relationship("TestAssignment", back_populates="test_cycle", cascade="all, delete-orphan")
@@ -123,9 +132,40 @@ class TestAssignment(Base):
     tester_id = Column(Integer, ForeignKey("users.id"))
     reviewer_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     status = Column(String(30), default="not_started")
-    # not_started | in_progress | needs_review | complete
+    # not_started | in_progress | needs_review | complete | failed
     tester_notes = Column(Text)
     reviewer_comments = Column(Text)
+
+    # ── Workpaper fields ────────────────────────────────────────────────────
+    testing_steps = Column(Text)             # step-by-step test procedure
+    sample_details = Column(Text)            # sample size, selection method
+    walkthrough_notes = Column(Text)         # observations from walkthrough
+    conclusion = Column(Text)                # tester's overall conclusion
+    evidence_request_text = Column(Text)     # text of evidence request sent to control owner
+    evidence_request_due_date = Column(Date) # when evidence is due
+
+    # ── Signoff / attestation ────────────────────────────────────────────────
+    tester_submitted_at = Column(DateTime, nullable=True)
+    tester_submitted_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    tester_signoff_note = Column(Text)
+    reviewer_decided_at = Column(DateTime, nullable=True)
+    reviewer_decided_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    reviewer_outcome = Column(String(30), nullable=True)  # approved | returned | failed
+
+    # ── Loop 1: Rework tracking ──────────────────────────────────────────────
+    rework_count        = Column(Integer, default=0, nullable=False)
+    last_returned_at    = Column(DateTime, nullable=True)
+    last_return_reason  = Column(Text, nullable=True)
+
+    # ── Loop 2: Evidence request reopen tracking ─────────────────────────────
+    reopen_count        = Column(Integer, default=0, nullable=False)
+    last_reopened_at    = Column(DateTime, nullable=True)
+    last_reopen_reason  = Column(Text, nullable=True)
+
+    # Re-test flag
+    is_retest                  = Column(Boolean, default=False, nullable=False)
+    retest_for_deficiency_id   = Column(Integer, ForeignKey("deficiencies.id"), nullable=True)
+
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -133,8 +173,27 @@ class TestAssignment(Base):
     control = relationship("Control", back_populates="assignments")
     tester = relationship("User", foreign_keys=[tester_id])
     reviewer = relationship("User", foreign_keys=[reviewer_id])
+    tester_submitter = relationship("User", foreign_keys=[tester_submitted_by_id])
+    reviewer_decider = relationship("User", foreign_keys=[reviewer_decided_by_id])
     evidence = relationship("Evidence", back_populates="assignment", cascade="all, delete-orphan")
-    deficiencies = relationship("Deficiency", back_populates="assignment", cascade="all, delete-orphan")
+    deficiencies = relationship("Deficiency", back_populates="assignment", foreign_keys="Deficiency.assignment_id", cascade="all, delete-orphan")
+    checklist_items = relationship("TestChecklistItem", back_populates="assignment", cascade="all, delete-orphan", order_by="TestChecklistItem.sort_order")
+    rework_log = relationship("AssignmentReworkLog", foreign_keys="AssignmentReworkLog.assignment_id", cascade="all, delete-orphan", order_by="AssignmentReworkLog.rework_number")
+    evidence_history = relationship("EvidenceRequestHistory", foreign_keys="EvidenceRequestHistory.assignment_id", cascade="all, delete-orphan", order_by="EvidenceRequestHistory.occurred_at")
+
+
+class TestChecklistItem(Base):
+    __tablename__ = "test_checklist_items"
+
+    id = Column(Integer, primary_key=True, index=True)
+    assignment_id = Column(Integer, ForeignKey("test_assignments.id"), nullable=False, index=True)
+    title = Column(String(300), nullable=False)
+    completed = Column(Boolean, default=False, nullable=False)
+    completed_at = Column(DateTime, nullable=True)
+    sort_order = Column(Integer, default=0, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    assignment = relationship("TestAssignment", back_populates="checklist_items")
 
 
 class Deficiency(Base):
@@ -148,10 +207,63 @@ class Deficiency(Base):
     remediation_plan = Column(Text)
     status = Column(String(30), nullable=False, default="open")  # open/in_remediation/remediated/risk_accepted
     due_date = Column(Date)
+    linked_risk_id = Column(Integer, ForeignKey("risks.id"), nullable=True, index=True)
+
+    # ── Remediation detail fields ────────────────────────────────────────────
+    root_cause = Column(Text)
+    business_impact = Column(Text)
+    remediation_owner = Column(String(100))
+    validation_notes = Column(Text)
+    closure_evidence = Column(Text)
+    closed_at = Column(DateTime, nullable=True)
+
+    # ── Loop: Re-test requirement ─────────────────────────────────────────────────
+    retest_required            = Column(Boolean, default=True, nullable=False)
+    retest_assignment_id       = Column(Integer, ForeignKey("test_assignments.id"), nullable=True)
+    retest_waived              = Column(Boolean, default=False, nullable=False)
+    retest_waived_by_user_id   = Column(Integer, ForeignKey("users.id"), nullable=True)
+    retest_waived_reason       = Column(Text, nullable=True)
+    retest_waiver              = relationship("User", foreign_keys=[retest_waived_by_user_id])
+    retest_assignment          = relationship("TestAssignment", foreign_keys=[retest_assignment_id])
+
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    assignment = relationship("TestAssignment", back_populates="deficiencies")
+    assignment   = relationship("TestAssignment", back_populates="deficiencies", foreign_keys="Deficiency.assignment_id")
+    linked_risk  = relationship("Risk", foreign_keys=[linked_risk_id])
+    milestones   = relationship("DeficiencyMilestone", back_populates="deficiency", cascade="all, delete-orphan", order_by="DeficiencyMilestone.due_date")
+
+
+class DeficiencyMilestone(Base):
+    __tablename__ = "deficiency_milestones"
+
+    id = Column(Integer, primary_key=True, index=True)
+    deficiency_id = Column(Integer, ForeignKey("deficiencies.id"), nullable=False, index=True)
+    title = Column(String(200), nullable=False)
+    due_date = Column(Date, nullable=True)
+    assignee_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    status = Column(String(30), nullable=False, default="open")  # open | completed | overdue
+    completed_at = Column(DateTime, nullable=True)
+    notes = Column(Text)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    # ── Loop 3: Escalation tracking ──────────────────────────────────────────
+    escalated_at      = Column(DateTime, nullable=True)
+    escalation_level  = Column(Integer, default=0, nullable=False)
+    # 0=none  1=owner notified  2=manager notified
+
+    # ── Loop 3: Extension request ────────────────────────────────────────────
+    extension_requested        = Column(Boolean, default=False, nullable=False)
+    extension_request_reason   = Column(Text, nullable=True)
+    extension_requested_at     = Column(DateTime, nullable=True)
+    extension_approved         = Column(Boolean, nullable=True)   # None=pending, True=approved, False=rejected
+    extension_approved_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    original_due_date          = Column(Date, nullable=True)
+    new_due_date               = Column(Date, nullable=True)
+
+    deficiency = relationship("Deficiency", back_populates="milestones")
+    assignee   = relationship("User", foreign_keys=[assignee_id])
+    extension_approver = relationship("User", foreign_keys=[extension_approved_by_user_id])
 
 
 class Evidence(Base):
@@ -162,6 +274,7 @@ class Evidence(Base):
     filename = Column(String(255), nullable=False)          # stored filename (uuid-based)
     original_filename = Column(String(255), nullable=False) # original upload name
     file_path = Column(String(500), nullable=False)
+    file_size = Column(Integer, nullable=True)              # bytes
     description = Column(Text)
     uploaded_by = Column(Integer, ForeignKey("users.id"))
     uploaded_at = Column(DateTime, default=datetime.utcnow)
@@ -185,9 +298,30 @@ class Risk(Base):
     residual_impact     = Column(Integer, nullable=True)  # 1-5 after controls
     # residual_score = residual_likelihood * residual_impact (computed)
     treatment = Column(String(20), default="mitigate")  # mitigate / accept / transfer / avoid
-    status = Column(String(20), default="open")         # open / mitigated / accepted / transferred / closed
+    # new | closed | managed_with_dates | managed_without_dates | unmanaged
+    status = Column(String(30), default="new")
+    managed_start_date = Column(Date, nullable=True)   # required when status = managed_with_dates
+    managed_end_date   = Column(Date, nullable=True)   # required when status = managed_with_dates
     owner = Column(String(100))
     owner_id = Column(Integer, ForeignKey("users.id"), nullable=True)  # linked user (director/risk_owner)
+    parent_risk_id = Column(Integer, ForeignKey("risks.id"), nullable=True, index=True)
+    # Extended classification fields
+    category              = Column(String(100), nullable=True)
+    risk_type             = Column(String(50),  nullable=True)
+    risk_theme            = Column(String(100), nullable=True)
+    source                = Column(String(100), nullable=True)
+    department            = Column(String(100), nullable=True)
+    stage                 = Column(String(50),  nullable=True)
+    # Target risk scoring (where we want to be after controls)
+    target_likelihood     = Column(Integer, nullable=True)
+    target_impact         = Column(Integer, nullable=True)
+    # Important dates
+    date_identified       = Column(Date, nullable=True)
+    date_closed           = Column(Date, nullable=True)
+    # Closure tracking
+    closing_justification = Column(Text, nullable=True)
+    # Compliance tagging (free-text, comma-separated frameworks)
+    regulatory_compliance = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -196,6 +330,9 @@ class Risk(Base):
     controls = relationship("RiskControl", back_populates="risk", cascade="all, delete-orphan")
     owner_user = relationship("User", foreign_keys=[owner_id])
     treatment_plan = relationship("TreatmentPlan", back_populates="risk", uselist=False)
+    # Self-referential parent/child hierarchy
+    children = relationship("Risk", foreign_keys=[parent_risk_id],
+                            backref=backref("parent_risk", remote_side=[id]))
 
 
 class TreatmentPlan(Base):
@@ -373,6 +510,16 @@ class ControlException(Base):
     created_at   = Column(DateTime, default=datetime.utcnow)
     updated_at   = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
+    # ── 4B: Post-decision lifecycle ───────────────────────────────────────────────
+    expires_at              = Column(DateTime, nullable=True)
+    expiry_notified_at      = Column(DateTime, nullable=True)
+    expired_at              = Column(DateTime, nullable=True)
+    rejection_reason        = Column(Text, nullable=True)
+    resubmission_count      = Column(Integer, default=0, nullable=False)
+    parent_exception_id     = Column(Integer, ForeignKey("control_exceptions.id"), nullable=True)
+    decision_notified_at    = Column(DateTime, nullable=True)
+    parent_exception        = relationship("ControlException", remote_side="[ControlException.id]", foreign_keys="[ControlException.parent_exception_id]")
+
     control   = relationship("Control", back_populates="exceptions")
     requester = relationship("User", foreign_keys=[requested_by])
     approver  = relationship("User", foreign_keys=[approved_by])
@@ -397,7 +544,8 @@ class RiskReviewCycle(Base):
     label       = Column(String(200), nullable=False)
     cycle_type  = Column(String(20), nullable=False)     # label only: jan | jul | quarterly | monthly | ad_hoc
     year        = Column(Integer, nullable=True)
-    min_score   = Column(Integer, default=0, nullable=False)  # minimum inherent score to include
+    min_score   = Column(Integer, default=0, nullable=False)  # legacy — kept for old cycles
+    severities  = Column(Text, nullable=True)                # comma-sep: low,medium,high,critical
     status      = Column(String(20), default="draft")    # draft | active | closed
     scope_note  = Column(Text, nullable=True)
     created_by  = Column(Integer, ForeignKey("users.id"), nullable=True)
@@ -451,8 +599,77 @@ class RiskReviewUpdate(Base):
     notes               = Column(Text, nullable=True)
     submitted_at        = Column(DateTime, default=datetime.utcnow)
 
-    request   = relationship("RiskReviewRequest", back_populates="updates")
-    submitter = relationship("User", foreign_keys=[submitted_by])
+    # ── 4C: GRC approval step ────────────────────────────────────────────────────
+    grc_review_status        = Column(String(30), nullable=False, default="pending_review")
+    # pending_review | accepted | challenged
+    grc_reviewer_user_id     = Column(Integer, ForeignKey("users.id"), nullable=True)
+    grc_challenge_reason     = Column(Text, nullable=True)
+    grc_reviewed_at          = Column(DateTime, nullable=True)
+    owner_challenge_response = Column(Text, nullable=True)
+    owner_responded_at       = Column(DateTime, nullable=True)
+
+    request      = relationship("RiskReviewRequest", back_populates="updates")
+    submitter    = relationship("User", foreign_keys=[submitted_by])
+    grc_reviewer = relationship("User", foreign_keys=[grc_reviewer_user_id])
+
+
+# ── Notification (in-app) ─────────────────────────────────────────────────────
+
+class Notification(Base):
+    """
+    Lightweight in-app notification record.
+    Created by escalation / workflow services; dismissed by the recipient.
+    """
+    __tablename__ = "notifications"
+
+    id          = Column(Integer, primary_key=True, index=True)
+    user_id     = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    message     = Column(Text, nullable=False)
+    entity_type = Column(String(50), nullable=True)   # assignment | evidence_request | milestone
+    entity_id   = Column(Integer, nullable=True)
+    is_read     = Column(Boolean, default=False, nullable=False)
+    created_at  = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    user = relationship("User", foreign_keys=[user_id])
+
+
+# ── Assignment Rework Log ────────────────────────────────────────────────────
+
+class AssignmentReworkLog(Base):
+    """Immutable log of every time a reviewer returned an assignment for rework."""
+    __tablename__ = "assignment_rework_log"
+
+    id                  = Column(Integer, primary_key=True, index=True)
+    assignment_id       = Column(Integer, ForeignKey("test_assignments.id"), nullable=False, index=True)
+    returned_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    return_reason       = Column(Text, nullable=False)
+    returned_at         = Column(DateTime, nullable=False, default=datetime.utcnow)
+    rework_number       = Column(Integer, nullable=False)  # which iteration (1-based)
+
+    assignment  = relationship("TestAssignment", foreign_keys=[assignment_id], overlaps="rework_log")
+    returned_by = relationship("User", foreign_keys=[returned_by_user_id])
+
+
+# ── Evidence Request History ─────────────────────────────────────────────────
+
+class EvidenceRequestHistory(Base):
+    """
+    Audit trail for every state change on the evidence request lifecycle
+    within a test assignment.
+    """
+    __tablename__ = "evidence_request_history"
+
+    id                     = Column(Integer, primary_key=True, index=True)
+    assignment_id          = Column(Integer, ForeignKey("test_assignments.id"), nullable=False, index=True)
+    # opened | fulfilled | reopened | cancelled
+    action                 = Column(String(30), nullable=False)
+    actor_user_id          = Column(Integer, ForeignKey("users.id"), nullable=True)
+    reason                 = Column(Text, nullable=True)
+    file_snapshot_reference = Column(Text, nullable=True)
+    occurred_at            = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    assignment = relationship("TestAssignment", foreign_keys=[assignment_id], overlaps="evidence_history")
+    actor      = relationship("User", foreign_keys=[actor_user_id])
 
 
 class AuditLog(Base):

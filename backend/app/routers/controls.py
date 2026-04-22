@@ -1,9 +1,10 @@
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
 from app.db.database import get_db
 from app.schemas.schemas import ControlCreate, ControlUpdate, ControlOut, ControlCycleHistoryOut
-from app.services.services import ControlService, AuditService
-from app.auth.local_auth import get_current_user, require_role
+from app.services.services import ControlService
+from app.services import audit_service
+from app.auth.permissions import require_permission, has_permission
 from app.models.models import User
 
 router = APIRouter(prefix="/controls", tags=["controls"])
@@ -26,7 +27,7 @@ def _snap(c) -> dict:
 def list_controls(
     status: str = Query(None),
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_user),
+    _: User = Depends(require_permission("controls:read")),
 ):
     return ControlService(db).list_controls(status)
 
@@ -35,7 +36,7 @@ def list_controls(
 def get_control(
     control_id: int,
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_user),
+    _: User = Depends(require_permission("controls:read")),
 ):
     return ControlService(db).get_control(control_id)
 
@@ -44,7 +45,7 @@ def get_control(
 def get_control_cycles(
     control_id: int,
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_user),
+    _: User = Depends(require_permission("controls:read")),
 ):
     ctrl = ControlService(db).get_control(control_id)
     from sqlalchemy.orm import joinedload
@@ -85,10 +86,13 @@ def create_control(
     data: ControlCreate,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_role("admin")),
+    current_user: User = Depends(require_permission("controls:write")),
 ):
+    # Mappings require an extra privilege
+    if data.mappings and not has_permission(current_user.role, "controls:manage_mappings"):
+        raise HTTPException(status_code=403, detail="Only admins can set framework mappings")
     result = ControlService(db).create_control(data)
-    AuditService(db).log(
+    audit_service.emit(db,
         "CONTROL_CREATED", actor=current_user,
         resource_type="Control", resource_id=result.id,
         resource_name=f"{result.control_id} — {result.title}",
@@ -103,13 +107,16 @@ def update_control(
     data: ControlUpdate,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_role("admin")),
+    current_user: User = Depends(require_permission("controls:write")),
 ):
+    # Mappings (including clearing them with []) require admin
+    if data.mappings is not None and not has_permission(current_user.role, "controls:manage_mappings"):
+        raise HTTPException(status_code=403, detail="Only admins can modify framework mappings")
     svc = ControlService(db)
     before_obj = svc.get_control(control_id)
     before = _snap(before_obj)
     result = svc.update_control(control_id, data)
-    AuditService(db).log(
+    audit_service.emit(db,
         "CONTROL_UPDATED", actor=current_user,
         resource_type="Control", resource_id=result.id,
         resource_name=f"{result.control_id} — {result.title}",
@@ -123,14 +130,14 @@ def delete_control(
     control_id: int,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_role("admin")),
+    current_user: User = Depends(require_permission("controls:delete")),
 ):
     svc = ControlService(db)
     obj = svc.get_control(control_id)
     before = _snap(obj)
     name = f"{obj.control_id} — {obj.title}"
     svc.delete_control(control_id)
-    AuditService(db).log(
+    audit_service.emit(db,
         "CONTROL_DELETED", actor=current_user,
         resource_type="Control", resource_id=control_id,
         resource_name=name, before=before, request=request,

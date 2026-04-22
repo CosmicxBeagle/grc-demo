@@ -34,6 +34,19 @@ Desktop.ini
 dist/
 build/
 
+# Office temp lock files and presentation artifacts
+~$*.pptx
+~$*.xlsx
+~$*.docx
+*.pptx
+pptx_unpacked/
+create-deck.js
+GRC_User_Flow.html
+
+# Root-level package files (not part of the app)
+/package.json
+/package-lock.json
+
 # Unrelated projects in this directory
 chess/
 crypto-tax/

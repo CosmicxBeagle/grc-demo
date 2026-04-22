@@ -1,8 +1,8 @@
 from sqlalchemy.orm import Session, joinedload
-from sqlalchemy import func
+from sqlalchemy import func, or_, and_
 from datetime import datetime
 from typing import Optional
-from app.models.models import User, Control, ControlMapping, TestCycle, TestAssignment, Evidence, Deficiency, Asset, Threat, Risk, RiskControl, ControlException
+from app.models.models import User, Control, ControlMapping, TestCycle, TestAssignment, Evidence, Deficiency, DeficiencyMilestone, Asset, Threat, Risk, RiskControl, ControlException, TestChecklistItem, Notification, AssignmentReworkLog, EvidenceRequestHistory
 
 
 # ── User Repository ────────────────────────────────────────────────────────
@@ -112,8 +112,11 @@ class TestCycleRepository:
                 joinedload(TestCycle.assignments).joinedload(TestAssignment.control).joinedload(Control.mappings),
                 joinedload(TestCycle.assignments).joinedload(TestAssignment.tester),
                 joinedload(TestCycle.assignments).joinedload(TestAssignment.reviewer),
+                joinedload(TestCycle.assignments).joinedload(TestAssignment.tester_submitter),
+                joinedload(TestCycle.assignments).joinedload(TestAssignment.reviewer_decider),
                 joinedload(TestCycle.assignments).joinedload(TestAssignment.evidence),
-                joinedload(TestCycle.assignments).joinedload(TestAssignment.deficiencies),
+                joinedload(TestCycle.assignments).joinedload(TestAssignment.deficiencies).joinedload(Deficiency.milestones),
+                joinedload(TestCycle.assignments).joinedload(TestAssignment.checklist_items),
             )
             .filter(TestCycle.id == cycle_id)
             .first()
@@ -153,8 +156,13 @@ class AssignmentRepository:
                 joinedload(TestAssignment.control),
                 joinedload(TestAssignment.tester),
                 joinedload(TestAssignment.reviewer),
+                joinedload(TestAssignment.tester_submitter),
+                joinedload(TestAssignment.reviewer_decider),
                 joinedload(TestAssignment.evidence),
-                joinedload(TestAssignment.deficiencies),
+                joinedload(TestAssignment.deficiencies).joinedload(Deficiency.milestones),
+                joinedload(TestAssignment.checklist_items),
+                joinedload(TestAssignment.rework_log).joinedload(AssignmentReworkLog.returned_by),
+                joinedload(TestAssignment.evidence_history).joinedload(EvidenceRequestHistory.actor),
             )
             .filter(TestAssignment.id == assignment_id)
             .first()
@@ -227,6 +235,66 @@ class EvidenceRepository:
 
     def total_count(self) -> int:
         return self.db.query(func.count(Evidence.id)).scalar()
+
+    def list_paginated(
+        self,
+        *,
+        q: str | None = None,
+        test_cycle_ids: list[int] | None = None,
+        control_prefixes: list[str] | None = None,
+        date_from: str | None = None,
+        date_to: str | None = None,
+        sort_by: str = "uploaded_at",
+        sort_dir: str = "desc",
+        page: int = 1,
+        page_size: int = 25,
+    ) -> tuple[list[Evidence], int]:
+        from datetime import datetime as dt
+        query = (
+            self.db.query(Evidence)
+            .join(Evidence.assignment)
+            .join(TestAssignment.control)
+            .join(TestAssignment.test_cycle)
+            .outerjoin(Evidence.uploader)
+            .options(
+                joinedload(Evidence.assignment).joinedload(TestAssignment.control),
+                joinedload(Evidence.assignment).joinedload(TestAssignment.test_cycle),
+                joinedload(Evidence.uploader),
+            )
+        )
+        if q:
+            pattern = f"%{q}%"
+            query = query.filter(
+                or_(
+                    Evidence.original_filename.ilike(pattern),
+                    Control.title.ilike(pattern),
+                    Control.control_id.ilike(pattern),
+                    TestCycle.name.ilike(pattern),
+                )
+            )
+        if test_cycle_ids:
+            query = query.filter(TestAssignment.test_cycle_id.in_(test_cycle_ids))
+        if control_prefixes:
+            prefix_filters = [Control.control_id.ilike(f"{p}%") for p in control_prefixes]
+            query = query.filter(or_(*prefix_filters))
+        if date_from:
+            query = query.filter(Evidence.uploaded_at >= dt.fromisoformat(date_from))
+        if date_to:
+            query = query.filter(Evidence.uploaded_at <= dt.fromisoformat(date_to + "T23:59:59"))
+
+        # sorting
+        sort_col_map = {
+            "original_filename": Evidence.original_filename,
+            "uploaded_at": Evidence.uploaded_at,
+            "control": Control.control_id,
+            "cycle": TestCycle.name,
+        }
+        col = sort_col_map.get(sort_by, Evidence.uploaded_at)
+        query = query.order_by(col.desc() if sort_dir == "desc" else col.asc())
+
+        total = query.count()
+        items = query.offset((page - 1) * page_size).limit(page_size).all()
+        return items, total
 
 
 # ── Deficiency Repository ──────────────────────────────────────────────────
@@ -342,29 +410,63 @@ class RiskRepository:
     def __init__(self, db: Session):
         self.db = db
 
-    def get_all(self):
-        return (
-            self.db.query(Risk)
-            .options(
-                joinedload(Risk.asset),
-                joinedload(Risk.threat),
-                joinedload(Risk.controls).joinedload(RiskControl.control),
-            )
-            .order_by(Risk.created_at.desc())
-            .all()
+    def get_all(
+        self,
+        status: Optional[str] = None,
+        statuses: Optional[list] = None,
+        sort_by: str = "created_at",
+        sort_dir: str = "desc",
+        skip: int = 0,
+        limit: int = 500,
+    ):
+        from app.models.models import Asset, Threat  # avoid circular at module level
+
+        q = self.db.query(Risk).options(
+            joinedload(Risk.asset),
+            joinedload(Risk.threat),
+            joinedload(Risk.controls).joinedload(RiskControl.control),
+            joinedload(Risk.parent_risk),
         )
 
+        # Status filtering
+        if statuses:
+            q = q.filter(Risk.status.in_(statuses))
+        elif status:
+            q = q.filter(Risk.status == status)
+
+        # Sorting — whitelist columns to prevent injection
+        _sortable = {
+            "created_at": Risk.created_at,
+            "updated_at": Risk.updated_at,
+            "name": Risk.name,
+            "likelihood": Risk.likelihood,
+            "impact": Risk.impact,
+            "status": Risk.status,
+        }
+        sort_col = _sortable.get(sort_by, Risk.created_at)
+        q = q.order_by(sort_col.asc() if sort_dir == "asc" else sort_col.desc())
+
+        total = q.count()
+        risks = q.offset(skip).limit(limit).all()
+        for r in risks:
+            r.child_count = len(r.children)
+        return risks, total
+
     def get_by_id(self, id: int):
-        return (
+        risk = (
             self.db.query(Risk)
             .options(
                 joinedload(Risk.asset),
                 joinedload(Risk.threat),
                 joinedload(Risk.controls).joinedload(RiskControl.control),
+                joinedload(Risk.parent_risk),
             )
             .filter(Risk.id == id)
             .first()
         )
+        if risk:
+            risk.child_count = len(risk.children)
+        return risk
 
     def create(self, data: dict):
         obj = Risk(**data)
@@ -459,3 +561,41 @@ class ControlExceptionRepository:
     def delete(self, exc: ControlException):
         self.db.delete(exc)
         self.db.commit()
+
+
+# ── Notification Repository ────────────────────────────────────────────────
+
+class NotificationRepository:
+    def __init__(self, db: Session):
+        self.db = db
+
+    def get_for_user(self, user_id: int) -> list[Notification]:
+        return (
+            self.db.query(Notification)
+            .filter(Notification.user_id == user_id)
+            .order_by(Notification.created_at.desc())
+            .all()
+        )
+
+    def create(self, user_id: int, message: str, entity_type: str = None, entity_id: int = None) -> Notification:
+        n = Notification(
+            user_id=user_id,
+            message=message,
+            entity_type=entity_type,
+            entity_id=entity_id,
+        )
+        self.db.add(n)
+        self.db.commit()
+        self.db.refresh(n)
+        return n
+
+    def mark_read(self, notification_id: int, user_id: int) -> bool:
+        n = self.db.query(Notification).filter(
+            Notification.id == notification_id,
+            Notification.user_id == user_id,
+        ).first()
+        if not n:
+            return False
+        n.is_read = True
+        self.db.commit()
+        return True

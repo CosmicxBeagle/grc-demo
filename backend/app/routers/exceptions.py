@@ -3,16 +3,19 @@ Control Exceptions & Risk Acceptance — CRUD endpoints.
 """
 from datetime import date, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Request
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.db.database import get_db
-from app.models.models import User
+from app.models.models import User, ControlException
 from app.repositories.repositories import ControlExceptionRepository
 from app.auth.permissions import require_permission
-from app.services.services import AuditService
+from app.services import audit_service
+from app.services.exception_lifecycle_service import (
+    on_exception_approved, on_exception_rejected, resubmit_exception, run_exception_lifecycle,
+)
 from app.schemas.schemas import (
     ControlExceptionCreate, ControlExceptionUpdate, ControlExceptionOut,
-    ApproverNotesRequest,
+    ApproverNotesRequest, ExceptionRejectRequest,
     EXCEPTION_STATUSES,
 )
 
@@ -55,7 +58,7 @@ def create_exception(
     data.setdefault("status", "pending_approval")
     data["requested_by"] = current_user.id
     result = repo.create(data)
-    AuditService(db).log(
+    audit_service.emit(db,
         "EXCEPTION_CREATED", actor=current_user,
         resource_type="Exception", resource_id=result.id,
         resource_name=result.reason[:80] if result.reason else str(result.id),
@@ -89,7 +92,7 @@ def update_exception(
     if "status" in data and data["status"] not in EXCEPTION_STATUSES:
         raise HTTPException(status_code=400, detail=f"Invalid status. Must be one of: {EXCEPTION_STATUSES}")
     result = repo.update(exc, data)
-    AuditService(db).log(
+    audit_service.emit(db,
         "EXCEPTION_UPDATED", actor=current_user,
         resource_type="Exception", resource_id=exception_id,
         before=before, after=_snap(result), request=request,
@@ -113,10 +116,13 @@ def approve_exception(
         "approved_by": current_user.id,
         "approver_notes": body.notes if body else None,
     })
-    AuditService(db).log(
+    on_exception_approved(db, result, current_user)
+    db.commit()
+    db.refresh(result)
+    audit_service.emit(db,
         "EXCEPTION_APPROVED", actor=current_user,
         resource_type="Exception", resource_id=exception_id,
-        resource_name=result.reason[:80] if result.reason else str(exception_id),
+        resource_name=result.title or str(exception_id),
         before=before, after=_snap(result), request=request,
     )
     return result
@@ -126,7 +132,7 @@ def approve_exception(
 def reject_exception(
     exception_id: int,
     request: Request,
-    body: "ApproverNotesRequest | None" = None,
+    data: ExceptionRejectRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission("exceptions:approve")),
 ):
@@ -136,12 +142,15 @@ def reject_exception(
     result = repo.update(exc, {
         "status": "rejected",
         "approved_by": current_user.id,
-        "approver_notes": body.notes if body else None,
+        "approver_notes": data.rejection_reason,
     })
-    AuditService(db).log(
+    on_exception_rejected(db, result, current_user, data.rejection_reason)
+    db.commit()
+    db.refresh(result)
+    audit_service.emit(db,
         "EXCEPTION_REJECTED", actor=current_user,
         resource_type="Exception", resource_id=exception_id,
-        resource_name=result.reason[:80] if result.reason else str(exception_id),
+        resource_name=result.title or str(exception_id),
         before=before, after=_snap(result), request=request,
     )
     return result
@@ -158,8 +167,37 @@ def delete_exception(
     exc = _get_or_404(repo, exception_id)
     before = _snap(exc)
     repo.delete(exc)
-    AuditService(db).log(
+    audit_service.emit(db,
         "EXCEPTION_DELETED", actor=current_user,
         resource_type="Exception", resource_id=exception_id,
         before=before, request=request,
     )
+
+
+# ── Workstream 4B: Post-decision lifecycle endpoints ──────────────────────────
+
+@router.post("/{exception_id}/resubmit", status_code=201)
+def resubmit(
+    exception_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_permission("exceptions:write")),
+):
+    """Resubmit a rejected exception as a new linked record."""
+    exc = db.query(ControlException).options(
+        joinedload(ControlException.requester)
+    ).filter(ControlException.id == exception_id).first()
+    if not exc:
+        raise HTTPException(status_code=404, detail="Exception not found")
+    new_exc = resubmit_exception(db, exc, user)
+    db.commit()
+    db.refresh(new_exc)
+    return {"id": new_exc.id, "status": new_exc.status, "parent_exception_id": new_exc.parent_exception_id}
+
+
+@router.post("/run-lifecycle")
+def run_lifecycle(
+    db: Session = Depends(get_db),
+    _: User = Depends(require_permission("settings:write")),
+):
+    """Run exception lifecycle checks (expiry warnings, mark expired). Call daily."""
+    return run_exception_lifecycle(db)

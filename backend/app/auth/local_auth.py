@@ -9,9 +9,13 @@ Auth module — supports two modes:
     Auto-provisions users on first login from Azure AD claims.
 """
 import base64
+import hashlib
+import hmac
 import json
+from datetime import datetime, timedelta, timezone
+from typing import Optional
 
-from fastapi import Header, HTTPException, Depends
+from fastapi import Header, HTTPException, Depends, Request
 from sqlalchemy.orm import Session
 
 from app.config import settings
@@ -21,10 +25,46 @@ from app.models.models import User
 
 # ── Token helpers ─────────────────────────────────────────────────────────────
 
-def encode_token(user_id: int, username: str, role: str) -> str:
-    """Demo-mode only: trivial base64 token. NOT for production."""
-    payload = json.dumps({"user_id": user_id, "username": username, "role": role})
-    return base64.b64encode(payload.encode()).decode()
+def _b64url_encode(value: bytes) -> str:
+    return base64.urlsafe_b64encode(value).decode().rstrip("=")
+
+
+def _b64url_decode(value: str) -> bytes:
+    padding = "=" * (-len(value) % 4)
+    return base64.urlsafe_b64decode((value + padding).encode())
+
+
+def _sign(payload: str) -> str:
+    digest = hmac.new(settings.session_secret.encode(), payload.encode(), hashlib.sha256).digest()
+    return _b64url_encode(digest)
+
+
+def encode_token(user_id: int, username: str, role: str, *, issued_at: Optional[datetime] = None) -> str:
+    """Signed application session token used by both cookie and header auth."""
+    issued_at = issued_at or datetime.now(timezone.utc)
+    expires_at = issued_at + timedelta(minutes=settings.session_timeout_minutes)
+    payload = _b64url_encode(
+        json.dumps(
+            {
+                "user_id": user_id,
+                "username": username,
+                "role": role,
+                "kind": "session",
+                "issued_at": int(issued_at.timestamp()),
+                "expires_at": int(expires_at.timestamp()),
+            },
+            separators=(",", ":"),
+        ).encode()
+    )
+    return f"{payload}.{_sign(payload)}"
+
+
+def queue_session_refresh(request: Request, payload: dict) -> None:
+    request.state.refresh_session_token = encode_token(
+        payload["user_id"],
+        payload["username"],
+        payload["role"],
+    )
 
 
 def _is_jwt(token: str) -> bool:
@@ -34,15 +74,28 @@ def _is_jwt(token: str) -> bool:
 
 def _decode_demo_token(token: str) -> dict:
     try:
-        return json.loads(base64.b64decode(token.encode()).decode())
+        payload_b64, signature = token.split(".", 1)
+        expected_signature = _sign(payload_b64)
+        if not hmac.compare_digest(signature, expected_signature):
+            raise ValueError("signature mismatch")
+        payload = json.loads(_b64url_decode(payload_b64).decode())
     except Exception:
         raise HTTPException(status_code=401, detail="Invalid token")
+    if payload.get("kind") != "session":
+        raise HTTPException(status_code=401, detail="Invalid token")
+    expires_at = payload.get("expires_at")
+    if not isinstance(expires_at, int):
+        raise HTTPException(status_code=401, detail="Invalid token")
+    if expires_at <= int(datetime.now(timezone.utc).timestamp()):
+        raise HTTPException(status_code=401, detail="session_expired")
+    return payload
 
 
 # ── Current-user dependency ───────────────────────────────────────────────────
 
 def get_current_user(
-    x_auth_token: str = Header(..., alias="X-Auth-Token"),
+    request: Request,
+    x_auth_token: Optional[str] = Header(None, alias="X-Auth-Token"),
     db: Session = Depends(get_db),
 ) -> User:
     """
@@ -52,9 +105,16 @@ def get_current_user(
       - Azure AD enabled + JWT-shaped token  → validate with Entra ID
       - Otherwise                             → demo base64 decode
     """
-    if _is_jwt(x_auth_token) and (settings.azure_enabled or settings.okta_enabled):
-        return _get_user_from_idp_token(x_auth_token, db)
-    return _get_user_from_demo_token(x_auth_token, db)
+    session_token = request.cookies.get(settings.session_cookie_name)
+    token = session_token or x_auth_token
+    if not token:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    if _is_jwt(token) and (settings.azure_enabled or settings.okta_enabled):
+        return _get_user_from_idp_token(token, db)
+    user = _get_user_from_demo_token(token, db)
+    if session_token:
+        queue_session_refresh(request, _decode_demo_token(token))
+    return user
 
 
 def _get_user_from_demo_token(token: str, db: Session) -> User:
@@ -62,6 +122,8 @@ def _get_user_from_demo_token(token: str, db: Session) -> User:
     user = db.query(User).filter(User.id == payload["user_id"]).first()
     if not user:
         raise HTTPException(status_code=401, detail="User not found")
+    if user.deactivated_at is not None:
+        raise HTTPException(status_code=401, detail="Account deactivated")
     return user
 
 

@@ -1,7 +1,3 @@
-import json
-import logging
-import uuid
-from datetime import datetime as _dt
 from pathlib import Path
 
 from fastapi import Request, UploadFile, HTTPException
@@ -11,8 +7,6 @@ from sqlalchemy.orm import Session
 # Each audit event emits one structured JSON line here.
 # Azure Container Apps ships stdout → Azure Monitor automatically.
 # Forward to Sentinel or any SIEM with a single diagnostic setting toggle.
-_audit_logger = logging.getLogger("audit")
-
 from app.config import settings
 from app import storage as evidence_storage
 from app.repositories.repositories import (
@@ -24,6 +18,8 @@ from app.schemas.schemas import (
     TestCycleCreate, TestCycleUpdate,
     TestAssignmentUpdate,
     LoginRequest,
+    SCIMUserCreate,
+    SCIMPatchRequest,
 )
 from app.auth.local_auth import encode_token
 from app.models.models import User
@@ -123,6 +119,69 @@ class UserService:
         self.db.delete(user)
         self.db.commit()
 
+    def create_scim_user(self, data: SCIMUserCreate):
+        from app.models.models import User as UserModel
+
+        primary_email = next((e.value for e in data.emails if e.primary), None)
+        email = primary_email or (data.emails[0].value if data.emails else data.userName)
+        display_name = data.displayName or (
+            data.name.formatted if data.name and data.name.formatted else data.userName
+        )
+
+        if self.db.query(UserModel).filter(UserModel.email == email).first():
+            raise HTTPException(409, "A user with that email already exists.")
+        if data.externalId and self.db.query(UserModel).filter(UserModel.external_id == data.externalId).first():
+            raise HTTPException(409, "A user with that external ID already exists.")
+
+        user = UserModel(
+            username=data.userName,
+            display_name=display_name,
+            email=email,
+            role=data.role,
+            status="active" if data.active else "inactive",
+            identity_provider="scim",
+            external_id=data.externalId,
+            department=data.department,
+            job_title=data.title,
+        )
+        self.db.add(user)
+        self.db.commit()
+        self.db.refresh(user)
+        return user
+
+    def patch_scim_user(self, user_id: int, data: SCIMPatchRequest):
+        user = self.get_user(user_id)
+
+        for operation in data.Operations:
+            op = operation.op.lower()
+            path = (operation.path or "").lower()
+            value = operation.value
+
+            if op not in {"replace"}:
+                raise HTTPException(400, f"Unsupported SCIM operation '{operation.op}'.")
+
+            if path == "role":
+                if not isinstance(value, str):
+                    raise HTTPException(400, "SCIM role patch requires a string value.")
+                user.role = value
+            elif path == "active":
+                if not isinstance(value, bool):
+                    raise HTTPException(400, "SCIM active patch requires a boolean value.")
+                user.status = "active" if value else "inactive"
+            else:
+                raise HTTPException(400, f"Unsupported SCIM patch path '{operation.path}'.")
+
+        self.db.commit()
+        self.db.refresh(user)
+        return user
+
+    def deactivate_scim_user(self, user_id: int):
+        user = self.get_user(user_id)
+        user.status = "inactive"
+        self.db.commit()
+        self.db.refresh(user)
+        return user
+
 
 # ── Control Service ────────────────────────────────────────────────────────
 
@@ -200,6 +259,23 @@ class TestCycleService:
     def update_cycle(self, cycle_id: int, data: TestCycleUpdate):
         cycle = self.get_cycle(cycle_id)
         return self.repo.update(cycle, data.model_dump(exclude_none=True))
+
+    def close_cycle(self, cycle_id: int):
+        from datetime import datetime as dt
+        cycle = self.get_cycle(cycle_id)
+        if cycle.status == "completed":
+            raise HTTPException(status_code=422, detail="Cycle is already closed.")
+        incomplete = [
+            a for a in cycle.assignments
+            if a.status in ("not_started", "in_progress", "needs_review")
+        ]
+        if incomplete:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Cannot close cycle: {len(incomplete)} assignment(s) are not yet complete. "
+                       "Finish or fail all assignments before closing.",
+            )
+        return self.repo.update(cycle, {"status": "completed", "closed_at": dt.utcnow()})
 
 
 # ── Assignment Service ─────────────────────────────────────────────────────
@@ -285,6 +361,7 @@ class EvidenceService:
             filename=stored_name,
             original_filename=file.filename or stored_name,
             file_path=storage_key,
+            file_size=len(contents),
             description=description,
             uploaded_by=uploader_id,
         )
@@ -306,112 +383,6 @@ class EvidenceService:
         except FileNotFoundError:
             raise HTTPException(status_code=404, detail="Evidence file not found in storage")
         return data, content_type, ev.original_filename
-
-
-# ── Audit Service ─────────────────────────────────────────────────────────────
-
-class AuditService:
-    """
-    Dual-write audit trail:
-      1. Writes an AuditLog row inside the current DB transaction.
-         If the outer transaction rolls back (e.g. validation error),
-         the audit entry rolls back too — no phantom log entries.
-      2. Always emits a structured JSON line via the 'audit' logger
-         regardless of DB outcome, so SIEM receives every attempt.
-
-    Usage (in a router):
-        before = _snap(existing_orm_obj)         # capture state BEFORE
-        result = service.update(...)             # do the work
-        AuditService(db).log(
-            "RISK_UPDATED", actor=current_user,
-            resource_type="Risk", resource_id=result.id,
-            resource_name=result.name,
-            before=before, after=_snap(result),
-            request=request,
-        )
-    """
-
-    def __init__(self, db: Session):
-        self.db = db
-
-    # ── private helpers ───────────────────────────────────────────────────
-
-    @staticmethod
-    def _diff(before: dict | None, after: dict | None) -> dict:
-        if not before or not after:
-            return {}
-        all_keys = set(before) | set(after)
-        return {
-            k: {"from": before.get(k), "to": after.get(k)}
-            for k in all_keys
-            if before.get(k) != after.get(k)
-        }
-
-    # ── public API ────────────────────────────────────────────────────────
-
-    def log(
-        self,
-        action: str,
-        *,
-        actor: "User | None" = None,
-        resource_type: str | None = None,
-        resource_id: int | None = None,
-        resource_name: str | None = None,
-        before: dict | None = None,
-        after: dict | None = None,
-        request: "Request | None" = None,
-        extra: dict | None = None,
-    ) -> None:
-        from app.models.models import AuditLog
-
-        changes = self._diff(before, after)
-        request_id = str(uuid.uuid4())
-
-        ip = ua = None
-        if request:
-            ip = request.client.host if request.client else None
-            ua = (request.headers.get("user-agent") or "")[:500]
-
-        # 1. Write to DB (same transaction as the calling router)
-        try:
-            entry = AuditLog(
-                timestamp=_dt.utcnow(),
-                actor_id=actor.id if actor else None,
-                actor_email=getattr(actor, "email", None) if actor else None,
-                actor_role=getattr(actor, "role", None) if actor else None,
-                action=action,
-                resource_type=resource_type,
-                resource_id=resource_id,
-                resource_name=resource_name,
-                before_state=json.dumps(before, default=str) if before else None,
-                after_state=json.dumps(after, default=str) if after else None,
-                changes=json.dumps(changes, default=str) if changes else None,
-                ip_address=ip,
-                user_agent=ua,
-                request_id=request_id,
-            )
-            self.db.add(entry)
-            self.db.commit()
-        except Exception:
-            # Never let audit failure break the main operation
-            _audit_logger.exception("Failed to write audit log to DB for action=%s", action)
-
-        # 2. Emit structured JSON to stdout → Azure Monitor / SIEM
-        _audit_logger.info(json.dumps({
-            "event":      "audit",
-            "timestamp":  _dt.utcnow().isoformat() + "Z",
-            "action":     action,
-            "actor":      {
-                "id":    actor.id    if actor else None,
-                "email": getattr(actor, "email", None) if actor else None,
-                "role":  getattr(actor, "role",  None) if actor else None,
-            },
-            "resource":   {"type": resource_type, "id": resource_id, "name": resource_name},
-            "changes":    changes,
-            "ip":         ip,
-            "request_id": request_id,
-            **(extra or {}),
-        }, default=str))
 
 
 # ── Dashboard Service ──────────────────────────────────────────────────────
@@ -499,7 +470,7 @@ class DashboardService:
             "deficiency_remediated": def_counts.get("remediated", 0),
             "deficiency_risk_accepted": def_counts.get("risk_accepted", 0),
             "pci_testing": self._pci_testing_breakdown(all_controls),
-            "risk_aging": self._risk_aging_breakdown(self.risk_repo.get_all()),
+            "risk_aging": self._risk_aging_breakdown(self.risk_repo.get_all()[0]),
             **self._exception_stats(),
         }
 
@@ -635,8 +606,24 @@ class RiskService:
         from app.repositories.repositories import RiskRepository
         self.repo = RiskRepository(db)
 
-    def list_all(self):
-        return self.repo.get_all()
+    def list_all(
+        self,
+        status: str = None,
+        statuses: list = None,
+        sort_by: str = "created_at",
+        sort_dir: str = "desc",
+        skip: int = 0,
+        limit: int = 500,
+    ):
+        items, total = self.repo.get_all(
+            status=status,
+            statuses=statuses,
+            sort_by=sort_by,
+            sort_dir=sort_dir,
+            skip=skip,
+            limit=limit,
+        )
+        return items, total
 
     def get(self, id: int):
         obj = self.repo.get_by_id(id)

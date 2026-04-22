@@ -17,7 +17,7 @@ from datetime import date as _date
 from app.db.database import get_db
 from app.auth.permissions import require_permission
 from app.models.models import User, ControlException, TreatmentPlan, TreatmentMilestone, Risk
-from app.services.services import AuditService
+from app.services import audit_service
 from app.repositories.repositories import (
     ControlRepository, DeficiencyRepository,
     RiskRepository, TestCycleRepository, AssignmentRepository,
@@ -57,8 +57,9 @@ def _xlsx_response(wb: Workbook, filename: str) -> StreamingResponse:
     buf = io.BytesIO()
     wb.save(buf)
     buf.seek(0)
+    safe_name = filename.replace('"', "").replace("\r", "").replace("\n", "")
     headers = {
-        "Content-Disposition": f'attachment; filename="{filename}"',
+        "Content-Disposition": f'attachment; filename="{safe_name}"',
         "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     }
     return StreamingResponse(buf, headers=headers)
@@ -167,7 +168,7 @@ def export_controls(request: Request, db: Session = Depends(get_db), current_use
             row += 1
             alt = not alt
 
-    AuditService(db).log("EXPORT_GENERATED", actor=current_user, resource_type="Export",
+    audit_service.emit(db,"EXPORT_GENERATED", actor=current_user, resource_type="Export",
                          resource_name="control_library", request=request)
     return _xlsx_response(wb, f"control_library_{datetime.utcnow().strftime('%Y%m%d')}.xlsx")
 
@@ -210,7 +211,7 @@ def export_deficiencies(request: Request, db: Session = Depends(get_db), current
             d.updated_at.strftime("%Y-%m-%d") if d.updated_at else "",
         ], row=4 + i, alt=bool(i % 2), fill_override=sev_fill)
 
-    AuditService(db).log("EXPORT_GENERATED", actor=current_user, resource_type="Export",
+    audit_service.emit(db,"EXPORT_GENERATED", actor=current_user, resource_type="Export",
                          resource_name="deficiency_register", request=request)
     return _xlsx_response(wb, f"deficiency_register_{datetime.utcnow().strftime('%Y%m%d')}.xlsx")
 
@@ -263,7 +264,7 @@ def export_risks(request: Request, db: Session = Depends(get_db), current_user: 
             controls_str,
         ], row=4 + i, alt=bool(i % 2), fill_override=score_fill)
 
-    AuditService(db).log("EXPORT_GENERATED", actor=current_user, resource_type="Export",
+    audit_service.emit(db,"EXPORT_GENERATED", actor=current_user, resource_type="Export",
                          resource_name="risk_register", request=request)
     return _xlsx_response(wb, f"risk_register_{datetime.utcnow().strftime('%Y%m%d')}.xlsx")
 
@@ -390,7 +391,7 @@ def export_test_cycle(cycle_id: int, request: Request, db: Session = Depends(get
         ws3.cell(row=4, column=1, value="No deficiencies recorded for this cycle.").font = Font(
             name="Calibri", italic=True, color="9CA3AF", size=10)
 
-    AuditService(db).log("EXPORT_GENERATED", actor=current_user, resource_type="Export",
+    audit_service.emit(db,"EXPORT_GENERATED", actor=current_user, resource_type="Export",
                          resource_name=f"test_cycle_{cycle_id}", request=request)
     filename = f"test_cycle_{cycle_id}_{cycle.name.replace(' ', '_')[:30]}_{datetime.utcnow().strftime('%Y%m%d')}.xlsx"
     return _xlsx_response(wb, filename)
@@ -528,7 +529,7 @@ def export_sox(request: Request, db: Session = Depends(get_db), current_user: Us
             if count:
                 cell.fill = DOMAIN_FILL.get(domain, ALT_FILL)
 
-    AuditService(db).log("EXPORT_GENERATED", actor=current_user, resource_type="Export",
+    audit_service.emit(db,"EXPORT_GENERATED", actor=current_user, resource_type="Export",
                          resource_name="sox_itgc_scoping", request=request)
     return _xlsx_response(wb, f"sox_itgc_scoping_{datetime.utcnow().strftime('%Y%m%d')}.xlsx")
 
@@ -587,7 +588,7 @@ def export_exceptions(
             e.created_at.strftime("%Y-%m-%d") if e.created_at else "",
         ], row=5 + i, alt=bool(i % 2), fill_override=fill)
 
-    AuditService(db).log("EXPORT_GENERATED", actor=current_user, resource_type="Export",
+    audit_service.emit(db,"EXPORT_GENERATED", actor=current_user, resource_type="Export",
                          resource_name="exceptions_register", request=request)
     return _xlsx_response(wb, f"exceptions_register_{datetime.utcnow().strftime('%Y%m%d')}.xlsx")
 
@@ -678,7 +679,7 @@ def export_treatment_plans(
         ws2.cell(row=4, column=1, value="No milestones recorded.").font = Font(
             name="Calibri", italic=True, color="9CA3AF", size=10)
 
-    AuditService(db).log("EXPORT_GENERATED", actor=current_user, resource_type="Export",
+    audit_service.emit(db,"EXPORT_GENERATED", actor=current_user, resource_type="Export",
                          resource_name="treatment_plans", request=request)
     return _xlsx_response(wb, f"treatment_plans_{datetime.utcnow().strftime('%Y%m%d')}.xlsx")
 
@@ -793,6 +794,6 @@ def export_risk_aging(
             for col in range(1, 4):
                 ws2.cell(row=4 + j, column=col).font = Font(name="Calibri", size=10, color="FFFFFF")
 
-    AuditService(db).log("EXPORT_GENERATED", actor=current_user, resource_type="Export",
+    audit_service.emit(db,"EXPORT_GENERATED", actor=current_user, resource_type="Export",
                          resource_name="risk_aging", request=request)
     return _xlsx_response(wb, f"risk_aging_{datetime.utcnow().strftime('%Y%m%d')}.xlsx")

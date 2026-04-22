@@ -22,7 +22,8 @@ PERMISSIONS = {
     # Controls
     "controls:read",
     "controls:write",
-    "controls:delete",
+    "controls:delete",            # admin-only
+    "controls:manage_mappings",   # admin-only: add/edit/remove framework mappings
     # Test cycles & assignments
     "tests:read",
     "tests:write",
@@ -130,16 +131,8 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
     },
 
     "risk_owner": {
-        "controls:read",
-        "tests:read",
-        "evidence:read",
-        "exceptions:read",
-        "approvals:read",
-        "deficiencies:read",
-        "risks:read", "risks:review_update",
-        "assets:read",
-        "users:read",
-        "reports:export",
+        "risks:read",
+        "risks:review_update",
     },
 
     "viewer": {
@@ -176,6 +169,18 @@ def require_permission(permission: str):
             raise HTTPException(
                 status_code=403,
                 detail=f"Your role '{current_user.role}' does not have permission: {permission}",
+            )
+        return current_user
+    return dependency
+
+
+def require_any_permission(*permissions: str):
+    """FastAPI dependency — raises 403 unless the current user has at least one permission."""
+    def dependency(current_user: User = Depends(get_current_user)) -> User:
+        if not any(has_permission(current_user.role, permission) for permission in permissions):
+            raise HTTPException(
+                status_code=403,
+                detail=f"Your role '{current_user.role}' does not have any of the required permissions: {', '.join(permissions)}",
             )
         return current_user
     return dependency

@@ -2,7 +2,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from app.auth.local_auth import get_current_user, require_role
+from app.auth.permissions import require_permission
 from app.db.database import get_db
 from app.models.models import User
 from app.schemas.schemas import (
@@ -21,7 +21,7 @@ router = APIRouter(prefix="/approvals", tags=["approvals"])
 def list_policies(
     entity_type: Optional[str] = None,
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_user),
+    _: User = Depends(require_permission("approvals:read")),
 ):
     return ApprovalPolicyService(db).list_policies(entity_type)
 
@@ -30,7 +30,7 @@ def list_policies(
 def create_policy(
     data: ApprovalPolicyCreate,
     db: Session = Depends(get_db),
-    _: User = Depends(require_role("admin")),
+    _: User = Depends(require_permission("approvals:manage_policies")),
 ):
     return ApprovalPolicyService(db).create_policy(data)
 
@@ -39,7 +39,7 @@ def create_policy(
 def get_policy(
     policy_id: int,
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_user),
+    _: User = Depends(require_permission("approvals:read")),
 ):
     return ApprovalPolicyService(db).get_policy(policy_id)
 
@@ -49,7 +49,7 @@ def update_policy(
     policy_id: int,
     data: ApprovalPolicyUpdate,
     db: Session = Depends(get_db),
-    _: User = Depends(require_role("admin")),
+    _: User = Depends(require_permission("approvals:manage_policies")),
 ):
     return ApprovalPolicyService(db).update_policy(policy_id, data)
 
@@ -58,7 +58,7 @@ def update_policy(
 def delete_policy(
     policy_id: int,
     db: Session = Depends(get_db),
-    _: User = Depends(require_role("admin")),
+    _: User = Depends(require_permission("approvals:manage_policies")),
 ):
     ApprovalPolicyService(db).delete_policy(policy_id)
 
@@ -69,7 +69,7 @@ def delete_policy(
 def create_workflow(
     data: ApprovalWorkflowCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission("approvals:read")),
 ):
     """Start an approval workflow for any entity."""
     svc = ApprovalWorkflowService(db)
@@ -87,7 +87,7 @@ def create_workflow(
 @router.get("/workflows/queue", response_model=list[ApprovalWorkflowOut])
 def my_queue(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission("approvals:read")),
 ):
     """Returns workflows where the current user is the pending approver."""
     return ApprovalWorkflowService(db).get_my_queue(current_user)
@@ -98,7 +98,7 @@ def get_entity_workflow(
     entity_type: str,
     entity_id: int,
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_user),
+    _: User = Depends(require_permission("approvals:read")),
 ):
     """Return the current workflow for a given record."""
     return ApprovalWorkflowService(db).get_for_entity(entity_type, entity_id)
@@ -109,7 +109,7 @@ def decide(
     workflow_id: int,
     req: ApprovalDecisionRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission("approvals:decide")),
 ):
     """Approve or reject the current step of a workflow."""
     return ApprovalWorkflowService(db).decide(workflow_id, req, current_user)

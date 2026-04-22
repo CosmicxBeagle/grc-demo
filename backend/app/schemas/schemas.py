@@ -37,6 +37,48 @@ class UserCreateManual(BaseModel):
     job_title:    Optional[str] = None
 
 
+class SCIMEmail(BaseModel):
+    value: str
+    primary: Optional[bool] = None
+
+
+class SCIMName(BaseModel):
+    formatted: Optional[str] = None
+    givenName: Optional[str] = None
+    familyName: Optional[str] = None
+
+
+class SCIMUserCreate(BaseModel):
+    userName: str
+    displayName: Optional[str] = None
+    name: Optional[SCIMName] = None
+    emails: list[SCIMEmail] = []
+    active: bool = True
+    externalId: Optional[str] = None
+    department: Optional[str] = None
+    title: Optional[str] = None
+    role: str = "viewer"
+
+
+class SCIMUserOut(BaseModel):
+    schemas: list[str] = ["urn:ietf:params:scim:schemas:core:2.0:User"]
+    id: str
+    userName: str
+    displayName: str
+    active: bool
+    emails: list[SCIMEmail]
+
+
+class SCIMPatchOperation(BaseModel):
+    op: str
+    path: Optional[str] = None
+    value: Optional[object] = None
+
+
+class SCIMPatchRequest(BaseModel):
+    Operations: list[SCIMPatchOperation]
+
+
 # ── Controls ───────────────────────────────────────────────────────────────
 
 class ControlMappingBase(BaseModel):
@@ -58,6 +100,9 @@ class ControlBase(BaseModel):
     control_id: str
     title: str
     description: Optional[str] = None
+    scf_question: Optional[str] = None
+    scf_domain: Optional[str] = None
+    scf_weight: Optional[int] = None
     control_type: Optional[str] = None
     frequency: Optional[str] = None
     owner: Optional[str] = None
@@ -74,6 +119,9 @@ class ControlCreate(ControlBase):
 class ControlUpdate(BaseModel):
     title: Optional[str] = None
     description: Optional[str] = None
+    scf_question: Optional[str] = None
+    scf_domain: Optional[str] = None
+    scf_weight: Optional[int] = None
     control_type: Optional[str] = None
     frequency: Optional[str] = None
     owner: Optional[str] = None
@@ -122,6 +170,13 @@ class TestAssignmentUpdate(BaseModel):
     status: Optional[str] = None
     tester_notes: Optional[str] = None
     reviewer_comments: Optional[str] = None
+    # workpaper fields
+    testing_steps: Optional[str] = None
+    sample_details: Optional[str] = None
+    walkthrough_notes: Optional[str] = None
+    conclusion: Optional[str] = None
+    evidence_request_text: Optional[str] = None
+    evidence_request_due_date: Optional[date] = None
 
 class EvidenceSummary(BaseModel):
     id: int
@@ -133,6 +188,14 @@ class EvidenceSummary(BaseModel):
 
 
 # ── Deficiencies ────────────────────────────────────────────────────────────
+
+class RiskSummaryForDeficiency(BaseModel):
+    id: int
+    name: str
+    status: str
+    likelihood: int
+    impact: int
+    model_config = {"from_attributes": True}
 
 class DeficiencyCreate(BaseModel):
     assignment_id: int
@@ -149,6 +212,62 @@ class DeficiencyUpdate(BaseModel):
     remediation_plan: Optional[str] = None
     status: Optional[str] = None
     due_date: Optional[date] = None
+    root_cause: Optional[str] = None
+    business_impact: Optional[str] = None
+    remediation_owner: Optional[str] = None
+    validation_notes: Optional[str] = None
+    closure_evidence: Optional[str] = None
+
+class PromoteToRiskRequest(BaseModel):
+    name: str
+    description: Optional[str] = None
+    likelihood: int = 3
+    impact: int = 3
+    treatment: Optional[str] = "mitigate"
+    owner: Optional[str] = None
+
+class LinkRiskRequest(BaseModel):
+    risk_id: int
+
+# ── Deficiency Milestones ───────────────────────────────────────────────────
+
+class DeficiencyMilestoneCreate(BaseModel):
+    title: str
+    due_date: Optional[date] = None
+    assignee_id: Optional[int] = None
+    notes: Optional[str] = None
+
+class DeficiencyMilestoneUpdate(BaseModel):
+    title: Optional[str] = None
+    due_date: Optional[date] = None
+    assignee_id: Optional[int] = None
+    status: Optional[str] = None
+    notes: Optional[str] = None
+
+class DeficiencyMilestoneOut(BaseModel):
+    id: int
+    deficiency_id: int
+    title: str
+    due_date: Optional[date] = None
+    assignee_id: Optional[int] = None
+    assignee: Optional["UserOut"] = None
+    status: str
+    completed_at: Optional[datetime] = None
+    notes: Optional[str] = None
+    created_at: Optional[datetime] = None
+    # Loop 3: escalation
+    escalated_at: Optional[datetime] = None
+    escalation_level: int = 0
+    # Loop 3: extension
+    extension_requested: bool = False
+    extension_request_reason: Optional[str] = None
+    extension_requested_at: Optional[datetime] = None
+    extension_approved: Optional[bool] = None
+    extension_approved_by_user_id: Optional[int] = None
+    extension_approver: Optional["UserOut"] = None
+    original_due_date: Optional[date] = None
+    new_due_date: Optional[date] = None
+    model_config = {"from_attributes": True}
 
 class DeficiencyOut(BaseModel):
     id: int
@@ -159,10 +278,110 @@ class DeficiencyOut(BaseModel):
     remediation_plan: Optional[str]
     status: str
     due_date: Optional[date]
+    linked_risk_id: Optional[int] = None
+    linked_risk: Optional[RiskSummaryForDeficiency] = None
+    # remediation detail fields
+    root_cause: Optional[str] = None
+    business_impact: Optional[str] = None
+    remediation_owner: Optional[str] = None
+    validation_notes: Optional[str] = None
+    closure_evidence: Optional[str] = None
+    closed_at: Optional[datetime] = None
+    # retest fields (Workstream 4A)
+    retest_required: bool = True
+    retest_assignment_id: Optional[int] = None
+    retest_waived: bool = False
+    retest_waived_by_user_id: Optional[int] = None
+    retest_waived_reason: Optional[str] = None
+    milestones: list[DeficiencyMilestoneOut] = []
     created_at: datetime
     updated_at: datetime
     model_config = {"from_attributes": True}
 
+
+# ── Checklist ──────────────────────────────────────────────────────────────
+
+class ChecklistItemCreate(BaseModel):
+    title: str
+    sort_order: int = 0
+
+class ChecklistItemUpdate(BaseModel):
+    title: Optional[str] = None
+    completed: Optional[bool] = None
+    sort_order: Optional[int] = None
+
+class ChecklistItemOut(BaseModel):
+    id: int
+    assignment_id: int
+    title: str
+    completed: bool
+    completed_at: Optional[datetime] = None
+    sort_order: int
+    created_at: Optional[datetime] = None
+    model_config = {"from_attributes": True}
+
+# ── Signoff schemas ─────────────────────────────────────────────────────────
+
+class TesterSubmitRequest(BaseModel):
+    signoff_note: Optional[str] = None
+
+class ReviewerDecideRequest(BaseModel):
+    outcome: str  # approved | returned | failed
+    notes: Optional[str] = None
+    return_reason: Optional[str] = None  # required when outcome == "returned" (min 10 chars enforced in router)
+
+# ── Loop 1: Rework schemas ───────────────────────────────────────────────────
+
+class ReturnAssignmentRequest(BaseModel):
+    reason: str = Field(..., min_length=10, description="Reason for returning (min 10 chars)")
+
+class AssignmentReworkLogEntry(BaseModel):
+    id: int
+    assignment_id: int
+    returned_by_user_id: int
+    returned_by: Optional["UserOut"] = None
+    return_reason: str
+    returned_at: datetime
+    rework_number: int
+    model_config = {"from_attributes": True}
+
+# ── Loop 2: Evidence reopen schemas ─────────────────────────────────────────
+
+class ReopenEvidenceRequest(BaseModel):
+    reason: str = Field(..., min_length=10, description="Reason for reopening (min 10 chars)")
+
+class EvidenceRequestHistoryEntry(BaseModel):
+    id: int
+    assignment_id: int
+    action: str  # opened | fulfilled | reopened | cancelled
+    actor_user_id: Optional[int] = None
+    actor: Optional["UserOut"] = None
+    reason: Optional[str] = None
+    file_snapshot_reference: Optional[str] = None
+    occurred_at: datetime
+    model_config = {"from_attributes": True}
+
+# ── Loop 3: Milestone extension schemas ─────────────────────────────────────
+
+class MilestoneExtensionRequest(BaseModel):
+    reason: str = Field(..., min_length=10, description="Justification for extension (min 10 chars)")
+
+class MilestoneExtensionApprove(BaseModel):
+    new_due_date: date
+
+# ── Notifications ────────────────────────────────────────────────────────────
+
+class NotificationOut(BaseModel):
+    id: int
+    user_id: int
+    message: str
+    entity_type: Optional[str] = None
+    entity_id: Optional[int] = None
+    is_read: bool
+    created_at: datetime
+    model_config = {"from_attributes": True}
+
+# ── Test Assignment ─────────────────────────────────────────────────────────
 
 class TestAssignmentOut(BaseModel):
     id: int
@@ -173,6 +392,32 @@ class TestAssignmentOut(BaseModel):
     status: str
     tester_notes: Optional[str]
     reviewer_comments: Optional[str]
+    # workpaper
+    testing_steps: Optional[str] = None
+    sample_details: Optional[str] = None
+    walkthrough_notes: Optional[str] = None
+    conclusion: Optional[str] = None
+    evidence_request_text: Optional[str] = None
+    evidence_request_due_date: Optional[date] = None
+    # signoff
+    tester_submitted_at: Optional[datetime] = None
+    tester_submitted_by_id: Optional[int] = None
+    tester_signoff_note: Optional[str] = None
+    reviewer_decided_at: Optional[datetime] = None
+    reviewer_decided_by_id: Optional[int] = None
+    reviewer_outcome: Optional[str] = None
+    tester_submitter: Optional[UserOut] = None
+    reviewer_decider: Optional[UserOut] = None
+    # Loop 1: rework
+    rework_count: int = 0
+    last_returned_at: Optional[datetime] = None
+    last_return_reason: Optional[str] = None
+    rework_log: list["AssignmentReworkLogEntry"] = []
+    # Loop 2: evidence reopen
+    reopen_count: int = 0
+    last_reopened_at: Optional[datetime] = None
+    last_reopen_reason: Optional[str] = None
+    evidence_history: list["EvidenceRequestHistoryEntry"] = []
     created_at: datetime
     updated_at: datetime
     control: Optional[ControlSummary] = None
@@ -180,6 +425,7 @@ class TestAssignmentOut(BaseModel):
     reviewer: Optional[UserOut] = None
     evidence: list[EvidenceSummary] = []
     deficiencies: list[DeficiencyOut] = []
+    checklist_items: list[ChecklistItemOut] = []
     model_config = {"from_attributes": True}
 
 
@@ -209,6 +455,7 @@ class TestCycleOut(TestCycleBase):
     status: str
     created_by: int
     created_at: datetime
+    closed_at: Optional[datetime] = None
     assignments: list[TestAssignmentOut] = []
     creator: Optional[UserOut] = None
     model_config = {"from_attributes": True}
@@ -236,8 +483,34 @@ class EvidenceOut(BaseModel):
     description: Optional[str]
     uploaded_by: int
     uploaded_at: datetime
+    file_size: Optional[int] = None
     uploader: Optional[UserOut] = None
     model_config = {"from_attributes": True}
+
+
+class EvidenceListItem(BaseModel):
+    """Flattened evidence row for the library list view."""
+    id: int
+    original_filename: str
+    description: Optional[str] = None
+    file_size: Optional[int] = None
+    uploaded_at: datetime
+    uploaded_by: Optional[int] = None
+    uploader_name: Optional[str] = None
+    uploader_email: Optional[str] = None
+    assignment_id: int
+    control_id: Optional[str] = None      # e.g. "IAC-16.1"
+    control_title: Optional[str] = None
+    test_cycle_id: Optional[int] = None
+    test_cycle_name: Optional[str] = None
+    model_config = {"from_attributes": True}
+
+
+class PaginatedEvidenceResponse(BaseModel):
+    items: list[EvidenceListItem]
+    total: int
+    page: int
+    page_size: int
 
 
 # ── Dashboard ──────────────────────────────────────────────────────────────
@@ -313,8 +586,6 @@ class ControlExceptionUpdate(BaseModel):
     compensating_control: Optional[str] = None
     risk_level: Optional[str] = None
     status: Optional[str] = None
-    approved_by: Optional[int] = None
-    approver_notes: Optional[str] = None
     expiry_date: Optional[date] = None
 
 class ControlExceptionOut(ControlExceptionBase):
@@ -329,6 +600,14 @@ class ControlExceptionOut(ControlExceptionBase):
     requester: Optional[UserOut] = None
     approver: Optional[UserOut] = None
     control: Optional["ControlSummary"] = None
+    # lifecycle fields (Workstream 4B)
+    expires_at: Optional[datetime] = None
+    expiry_notified_at: Optional[datetime] = None
+    expired_at: Optional[datetime] = None
+    rejection_reason: Optional[str] = None
+    resubmission_count: int = 0
+    parent_exception_id: Optional[int] = None
+    decision_notified_at: Optional[datetime] = None
     model_config = {"from_attributes": True}
 
 
@@ -406,6 +685,19 @@ class RiskControlOut(BaseModel):
     control: Optional[ControlSummary] = None
     model_config = {"from_attributes": True}
 
+class RiskParentSummary(BaseModel):
+    id: int
+    name: str
+    status: str
+    likelihood: int
+    impact: int
+    model_config = {"from_attributes": True}
+
+VALID_RISK_STATUSES = {
+    "new", "closed", "managed_with_dates", "managed_without_dates", "unmanaged"
+}
+
+
 class RiskCreate(BaseModel):
     name: str
     description: Optional[str] = None
@@ -416,9 +708,35 @@ class RiskCreate(BaseModel):
     residual_likelihood: Optional[int] = None
     residual_impact: Optional[int] = None
     treatment: Optional[str] = "mitigate"
-    status: Optional[str] = "open"
+    status: Optional[str] = "new"
+    managed_start_date: Optional[date] = None
+    managed_end_date: Optional[date] = None
     owner: Optional[str] = None
-    owner_id: Optional[int] = None   # FK to users — used for review email routing
+    owner_id: Optional[int] = None
+    parent_risk_id: Optional[int] = None
+    # Extended fields
+    category:              Optional[str]  = None
+    risk_type:             Optional[str]  = None
+    risk_theme:            Optional[str]  = None
+    source:                Optional[str]  = None
+    department:            Optional[str]  = None
+    stage:                 Optional[str]  = None
+    target_likelihood:     Optional[int]  = None
+    target_impact:         Optional[int]  = None
+    date_identified:       Optional[date] = None
+    date_closed:           Optional[date] = None
+    closing_justification: Optional[str]  = None
+    regulatory_compliance: Optional[str]  = None
+
+    @model_validator(mode="after")
+    def validate_managed_dates(self):
+        if self.status == "managed_with_dates":
+            if not self.managed_start_date or not self.managed_end_date:
+                raise ValueError(
+                    "managed_start_date and managed_end_date are required when status is managed_with_dates"
+                )
+        return self
+
 
 class RiskUpdate(BaseModel):
     name: Optional[str] = None
@@ -431,8 +749,34 @@ class RiskUpdate(BaseModel):
     residual_impact: Optional[int] = None
     treatment: Optional[str] = None
     status: Optional[str] = None
+    managed_start_date: Optional[date] = None
+    managed_end_date: Optional[date] = None
     owner: Optional[str] = None
     owner_id: Optional[int] = None
+    parent_risk_id: Optional[int] = None
+    # Extended fields
+    category:              Optional[str]  = None
+    risk_type:             Optional[str]  = None
+    risk_theme:            Optional[str]  = None
+    source:                Optional[str]  = None
+    department:            Optional[str]  = None
+    stage:                 Optional[str]  = None
+    target_likelihood:     Optional[int]  = None
+    target_impact:         Optional[int]  = None
+    date_identified:       Optional[date] = None
+    date_closed:           Optional[date] = None
+    closing_justification: Optional[str]  = None
+    regulatory_compliance: Optional[str]  = None
+
+    @model_validator(mode="after")
+    def validate_managed_dates(self):
+        if self.status == "managed_with_dates":
+            if not self.managed_start_date or not self.managed_end_date:
+                raise ValueError(
+                    "managed_start_date and managed_end_date are required when status is managed_with_dates"
+                )
+        return self
+
 
 class RiskOut(BaseModel):
     id: int
@@ -448,14 +792,33 @@ class RiskOut(BaseModel):
     residual_score: Optional[int] = None
     treatment: Optional[str] = None
     status: str
+    managed_start_date: Optional[date] = None
+    managed_end_date: Optional[date] = None
     owner: Optional[str] = None
     owner_id: Optional[int] = None
+    parent_risk_id: Optional[int] = None
+    parent_risk: Optional[RiskParentSummary] = None
+    child_count: int = 0
     created_at: datetime
     updated_at: datetime
     asset: Optional[AssetOut] = None
     threat: Optional[ThreatOut] = None
     days_open: int = 0
     controls: list[RiskControlOut] = []
+    # Extended fields
+    category:              Optional[str]  = None
+    risk_type:             Optional[str]  = None
+    risk_theme:            Optional[str]  = None
+    source:                Optional[str]  = None
+    department:            Optional[str]  = None
+    stage:                 Optional[str]  = None
+    target_likelihood:     Optional[int]  = None
+    target_impact:         Optional[int]  = None
+    target_score:          Optional[int]  = None
+    date_identified:       Optional[date] = None
+    date_closed:           Optional[date] = None
+    closing_justification: Optional[str]  = None
+    regulatory_compliance: Optional[str]  = None
     model_config = {"from_attributes": True}
 
     @model_validator(mode='after')
@@ -463,10 +826,20 @@ class RiskOut(BaseModel):
         self.inherent_score = self.likelihood * self.impact
         if self.residual_likelihood and self.residual_impact:
             self.residual_score = self.residual_likelihood * self.residual_impact
+        if self.target_likelihood and self.target_impact:
+            self.target_score = self.target_likelihood * self.target_impact
         if self.created_at:
             from datetime import datetime as _dt
             self.days_open = (_dt.utcnow() - self.created_at).days
         return self
+
+
+class PaginatedRiskResponse(BaseModel):
+    items: list[RiskOut]
+    total: int
+    skip: int
+    limit: int
+
 
 class RiskControlCreate(BaseModel):
     control_id: int
@@ -566,10 +939,11 @@ class ApprovalWorkflowCreate(BaseModel):
 
 class RiskReviewCycleCreate(BaseModel):
     label:      str
-    cycle_type: str               # label only: jan | jul | quarterly | monthly | ad_hoc
+    cycle_type: str               # monthly | quarterly | yearly | ad_hoc
     year:       Optional[int] = None
     scope_note: Optional[str] = None
-    min_score:  int = 0           # 0=all, 4=medium+, 12=high+, 20=critical only
+    min_score:  int = 0           # legacy fallback
+    severities: Optional[str] = None  # comma-sep: low,medium,high,critical
 
 class RiskReviewCycleOut(BaseModel):
     id:           int
@@ -577,6 +951,7 @@ class RiskReviewCycleOut(BaseModel):
     cycle_type:   str
     year:         Optional[int]     = None
     min_score:    int               = 0
+    severities:   Optional[str]     = None
     status:       str               # draft | active | closed
     scope_note:   Optional[str]     = None
     created_by:   Optional[int]     = None
@@ -595,16 +970,23 @@ class RiskReviewUpdateCreate(BaseModel):
     notes:               Optional[str] = None
 
 class RiskReviewUpdateOut(BaseModel):
-    id:                  int
-    request_id:          int
-    risk_id:             int
-    cycle_id:            int
-    submitted_by:        int
-    status_confirmed:    Optional[str] = None
-    mitigation_progress: Optional[str] = None
-    notes:               Optional[str] = None
-    submitted_at:        datetime
-    submitter:           Optional[UserOut] = None
+    id:                       int
+    request_id:               int
+    risk_id:                  int
+    cycle_id:                 int
+    submitted_by:             int
+    status_confirmed:         Optional[str] = None
+    mitigation_progress:      Optional[str] = None
+    notes:                    Optional[str] = None
+    submitted_at:             datetime
+    submitter:                Optional[UserOut] = None
+    # GRC review fields
+    grc_review_status:        Optional[str] = None
+    grc_reviewer_user_id:     Optional[int] = None
+    grc_challenge_reason:     Optional[str] = None
+    grc_reviewed_at:          Optional[datetime] = None
+    owner_challenge_response: Optional[str] = None
+    owner_responded_at:       Optional[datetime] = None
     model_config = {"from_attributes": True}
 
 class RiskReviewRequestOut(BaseModel):
@@ -698,3 +1080,23 @@ class TokenResponse(BaseModel):
 
 class AzureLoginRequest(BaseModel):
     access_token: str
+
+
+# ── Workstream 4A: Retest schemas ─────────────────────────────────────────────
+class RetestCreate(BaseModel):
+    cycle_id: int
+    assigned_to_user_id: int
+
+class RetestWaive(BaseModel):
+    reason: str = Field(..., min_length=10)
+
+
+# ── Workstream 4B: Exception lifecycle ───────────────────────────────────────
+class ExceptionRejectRequest(BaseModel):
+    rejection_reason: str = Field(..., min_length=20, description="Must document why the exception is rejected")
+
+class ExceptionResubmitResponse(BaseModel):
+    id: int
+    status: str
+    parent_exception_id: Optional[int] = None
+    model_config = {"from_attributes": True}

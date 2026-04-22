@@ -23,6 +23,23 @@ from app.schemas.schemas import (
     ApprovalPolicyCreate, ApprovalPolicyUpdate,
     ApprovalWorkflowCreate, ApprovalDecisionRequest,
 )
+from app.services.email_service import send_email, build_approval_request_email
+
+
+# ── Entity display name helper ───────────────────────────────────────────────
+
+def _get_entity_display_name(db: Session, entity_type: str, entity_id: int) -> str:
+    """Return a human-readable name for the entity being approved."""
+    from app.models.models import ControlException, TestAssignment
+    if entity_type == "exception":
+        obj = db.query(ControlException).filter(ControlException.id == entity_id).first()
+        if obj:
+            return obj.title or obj.justification[:60]
+    if entity_type == "control_test":
+        obj = db.query(TestAssignment).filter(TestAssignment.id == entity_id).first()
+        if obj:
+            return f"Control Test #{entity_id}"
+    return f"{entity_type} #{entity_id}"
 
 
 # ── Entity status sync ───────────────────────────────────────────────────────
@@ -295,7 +312,43 @@ class ApprovalWorkflowService:
             wf.current_step = base_steps[0].step_order
 
         self.db.commit()
-        return self._load_workflow(wf.id)
+        loaded = self._load_workflow(wf.id)
+
+        # ── Notify first-step approver ────────────────────────────────────────
+        try:
+            first_steps = sorted(loaded.steps, key=lambda s: s.step_order)
+            if first_steps:
+                first = first_steps[0]
+                # Collect approver emails: specific user or all users with matching role
+                approver_emails: list[tuple[str, str]] = []  # (email, display_name)
+                if first.approver_user_id and first.approver:
+                    approver_emails = [(first.approver.email, first.approver.display_name)]
+                elif first.approver_role:
+                    role_users = self.db.query(User).filter(
+                        User.role == first.approver_role,
+                        User.status == "active",
+                    ).all()
+                    approver_emails = [(u.email, u.display_name) for u in role_users]
+
+                # Resolve entity name
+                entity_name = _get_entity_display_name(self.db, entity_type, entity_id)
+                creator = self.db.query(User).filter(User.id == created_by_id).first()
+                requester_name = creator.display_name if creator else "A team member"
+
+                for email_addr, approver_name in approver_emails:
+                    subj, body = build_approval_request_email(
+                        entity_type=entity_type,
+                        entity_name=entity_name,
+                        requester_name=requester_name,
+                        step_label=first.label or "Review & Approve",
+                        approver_name=approver_name,
+                        workflow_id=loaded.id,
+                    )
+                    send_email(email_addr, subj, body)
+        except Exception:
+            pass  # never let email failure break the workflow creation
+
+        return loaded
 
     def decide(
         self,

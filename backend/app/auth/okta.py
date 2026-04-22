@@ -44,6 +44,34 @@ def validate_okta_token(token: str) -> dict:
         raise HTTPException(status_code=401, detail=f"Okta token validation failed: {exc}")
 
 
+def exchange_code_for_token(code: str) -> str:
+    """
+    Exchange an Okta authorization code for an access token.
+    Raises HTTP 401 on any validation failure.
+    """
+    try:
+        resp = httpx.post(
+            f"https://{settings.okta_domain}/oauth2/v1/token",
+            data={
+                "grant_type": "authorization_code",
+                "code": code,
+                "redirect_uri": settings.okta_redirect_uri,
+            },
+            auth=(settings.okta_client_id, settings.okta_client_secret),
+            headers={"Accept": "application/json"},
+            timeout=10,
+        )
+        resp.raise_for_status()
+        payload = resp.json()
+    except Exception as exc:
+        raise HTTPException(status_code=401, detail=f"Okta code exchange failed: {exc}")
+
+    access_token = payload.get("access_token")
+    if not access_token:
+        raise HTTPException(status_code=401, detail="Okta code exchange failed: missing access token")
+    return access_token
+
+
 def claims_to_user_info(claims: dict) -> dict:
     """
     Normalize Okta JWT claims to a standard shape.

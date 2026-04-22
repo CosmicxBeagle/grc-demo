@@ -38,6 +38,13 @@ services:
       DATABASE_URL: postgresql://grc:${POSTGRES_PASSWORD:-grc_local_dev_pw}@db:5432/grc_demo
       CORS_ORIGINS: "http://localhost:3002"
       APP_ENV: local
+      DEMO_AUTH_ENABLED: "true"
+      ENABLE_API_DOCS: "true"
+      SESSION_SECRET: local-dev-session-secret-change-me
+      SESSION_COOKIE_NAME: session
+      SESSION_TIMEOUT_MINUTES: "60"
+      AUTH_RATE_LIMIT_ATTEMPTS: "10"
+      AUTH_RATE_LIMIT_WINDOW_SECONDS: "60"
       APP_NAME: GRC Demo
       EVIDENCE_UPLOAD_DIR: /app/data/evidence
     ports:

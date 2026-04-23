@@ -86,7 +86,7 @@ async function send(payload: ErrorPayload): Promise<void> {
   // Default production mode: POST to backend, which forwards to structured logs
   try {
     await fetch(
-      `${process.env.NEXT_PUBLIC_API_URL ?? "/api/v1"}/telemetry/errors`,
+      "/api/v1/telemetry/errors",
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -138,7 +138,7 @@ export function trackPageView(path: string): void {
   }
   // POST page view event — low priority, fire and forget
   fetch(
-    `${process.env.NEXT_PUBLIC_API_URL ?? "/api/v1"}/telemetry/events`,
+    "/api/v1/telemetry/events",
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -166,7 +166,7 @@ export function trackEvent(
     return;
   }
   fetch(
-    `${process.env.NEXT_PUBLIC_API_URL ?? "/api/v1"}/telemetry/events`,
+    "/api/v1/telemetry/events",
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },

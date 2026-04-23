@@ -40,11 +40,16 @@ app = FastAPI(
     openapi_url="/openapi.json" if settings.api_docs_enabled else None,
 )
 
-_cors_origins = ["*"] if settings.app_env == "local" else settings.cors_origins_list
+# Always use the explicit origin list from CORS_ORIGINS env var.
+# Wildcard ("*") is intentionally avoided: browsers reject credentialed
+# requests (withCredentials=true / HttpOnly cookies) when the server
+# replies with Access-Control-Allow-Origin: *, even on local dev.
+# The .env CORS_ORIGINS already includes all localhost variants we use.
+_cors_origins = settings.cors_origins_list or ["http://localhost:3002"]
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_origins,
-    allow_credentials=_cors_origins != ["*"],
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )

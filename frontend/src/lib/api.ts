@@ -8,7 +8,12 @@ import type {
   AuditLogEntry, ChecklistItem, Notification,
 } from "@/types";
 
-const BASE = process.env.NEXT_PUBLIC_API_URL ?? "/api/v1";
+// All API traffic routes through the Next.js proxy (/api/v1/* → backend).
+// This keeps the browser on the same origin, so `withCredentials: true` works
+// without any CORS negotiation.  Never override this via NEXT_PUBLIC_API_URL —
+// that would send credentialed requests cross-origin, which browsers reject when
+// the server responds with Access-Control-Allow-Origin: *.
+const BASE = "/api/v1";
 
 const client = axios.create({
   baseURL: BASE,

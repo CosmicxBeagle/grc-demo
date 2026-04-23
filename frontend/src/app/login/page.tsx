@@ -66,7 +66,7 @@ function LoginPageInner() {
 
   const oktaLogin = () => {
     const returnTo = encodeURIComponent(redirectTo);
-    window.location.href = `${process.env.NEXT_PUBLIC_API_URL ?? "/api/v1"}/auth/okta/login?return_to=${returnTo}`;
+    window.location.href = `/api/v1/auth/okta/login?return_to=${returnTo}`;
   };
 
   // ── Render ────────────────────────────────────────────────────────────────

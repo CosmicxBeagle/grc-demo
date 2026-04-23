@@ -50,7 +50,7 @@ type SortCol = "name" | "likelihood" | "impact" | "status" | "created_at";
 type ColKey =
   | "asset_threat" | "score" | "likelihood" | "impact" | "residual_score" | "target_score"
   | "treatment" | "owner" | "status" | "created" | "age" | "controls" | "description"
-  | "category" | "risk_type" | "department" | "stage" | "source" | "risk_theme"
+  | "category" | "risk_type" | "department" | "owning_vp" | "stage" | "source" | "risk_theme"
   | "date_identified" | "regulatory_compliance";
 
 const COLUMN_DEFS: { key: ColKey; label: string }[] = [
@@ -69,6 +69,7 @@ const COLUMN_DEFS: { key: ColKey; label: string }[] = [
   { key: "category",             label: "Category"             },
   { key: "risk_type",            label: "Type"                 },
   { key: "department",           label: "Department"           },
+  { key: "owning_vp",            label: "Owning VP"            },
   { key: "stage",                label: "Stage"                },
   { key: "source",               label: "Source"               },
   { key: "risk_theme",           label: "Risk Theme"           },
@@ -852,6 +853,9 @@ function RisksPageContent() {
                 {col("department") && (
                   <th className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wider text-gray-500 whitespace-nowrap">Department</th>
                 )}
+                {col("owning_vp") && (
+                  <th className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wider text-gray-500 whitespace-nowrap">Owning VP</th>
+                )}
                 {col("stage") && (
                   <th className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wider text-gray-500 whitespace-nowrap">Stage</th>
                 )}
@@ -1063,6 +1067,13 @@ function RisksPageContent() {
                   {col("department") && (
                     <td className="px-4 py-3.5 text-xs text-gray-600 whitespace-nowrap">
                       {risk.department ?? <span className="text-gray-300">—</span>}
+                    </td>
+                  )}
+
+                  {/* Owning VP */}
+                  {col("owning_vp") && (
+                    <td className="px-4 py-3.5 text-xs text-gray-600 whitespace-nowrap">
+                      {risk.owning_vp ?? <span className="text-gray-300">—</span>}
                     </td>
                   )}
 

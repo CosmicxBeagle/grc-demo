@@ -250,6 +250,7 @@ const EMPTY_FORM = {
   risk_theme: "",
   source: "",
   department: "",
+  owning_vp: "",
   stage: "",
   date_identified: "",
   date_closed: "",
@@ -337,6 +338,7 @@ export default function RiskFormModal({
         risk_theme:            editRisk.risk_theme            ?? "",
         source:                editRisk.source                ?? "",
         department:            editRisk.department            ?? "",
+        owning_vp:             editRisk.owning_vp             ?? "",
         stage:                 editRisk.stage                 ?? "",
         date_identified:       editRisk.date_identified       ?? "",
         date_closed:           editRisk.date_closed           ?? "",
@@ -406,6 +408,7 @@ export default function RiskFormModal({
         risk_theme:            form.risk_theme            || null,
         source:                form.source                || null,
         department:            form.department            || null,
+        owning_vp:             form.owning_vp             || null,
         stage:                 form.stage                 || null,
         date_identified:       form.date_identified       || null,
         date_closed:           form.status === "closed" && form.date_closed ? form.date_closed : null,
@@ -547,6 +550,16 @@ export default function RiskFormModal({
                     onChange={(e) => update({ department: e.target.value })}
                     className="w-full border border-gray-300 rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                     placeholder="e.g. IT, Finance"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">Owning VP</label>
+                  <input
+                    type="text"
+                    value={form.owning_vp}
+                    onChange={(e) => update({ owning_vp: e.target.value })}
+                    className="w-full border border-gray-300 rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="e.g. Jane Smith"
                   />
                 </div>
                 <div>

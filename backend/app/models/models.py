@@ -311,6 +311,7 @@ class Risk(Base):
     risk_theme            = Column(String(100), nullable=True)
     source                = Column(String(100), nullable=True)
     department            = Column(String(100), nullable=True)
+    owning_vp             = Column(String(100), nullable=True)  # VP-level business owner
     stage                 = Column(String(50),  nullable=True)
     # Target risk scoring (where we want to be after controls)
     target_likelihood     = Column(Integer, nullable=True)

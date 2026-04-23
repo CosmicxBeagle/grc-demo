@@ -720,6 +720,7 @@ class RiskCreate(BaseModel):
     risk_theme:            Optional[str]  = None
     source:                Optional[str]  = None
     department:            Optional[str]  = None
+    owning_vp:             Optional[str]  = None
     stage:                 Optional[str]  = None
     target_likelihood:     Optional[int]  = None
     target_impact:         Optional[int]  = None
@@ -760,6 +761,7 @@ class RiskUpdate(BaseModel):
     risk_theme:            Optional[str]  = None
     source:                Optional[str]  = None
     department:            Optional[str]  = None
+    owning_vp:             Optional[str]  = None
     stage:                 Optional[str]  = None
     target_likelihood:     Optional[int]  = None
     target_impact:         Optional[int]  = None
@@ -811,6 +813,7 @@ class RiskOut(BaseModel):
     risk_theme:            Optional[str]  = None
     source:                Optional[str]  = None
     department:            Optional[str]  = None
+    owning_vp:             Optional[str]  = None
     stage:                 Optional[str]  = None
     target_likelihood:     Optional[int]  = None
     target_impact:         Optional[int]  = None

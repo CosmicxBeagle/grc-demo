@@ -380,6 +380,7 @@ export interface Risk {
   risk_theme?:            string;
   source?:                string;
   department?:            string;
+  owning_vp?:             string;
   stage?:                 string;
   target_likelihood?:     number;
   target_impact?:         number;

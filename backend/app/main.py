@@ -27,6 +27,20 @@ logging.getLogger("audit").propagate = False
 # startup-time ALTER TABLE patch script.
 if settings.app_env == 'local' and settings.database_url.startswith('sqlite'):
     Base.metadata.create_all(bind=engine)
+    # Incremental column additions for existing local databases.
+    # create_all() above only creates missing tables, not missing columns,
+    # so new nullable columns need a one-time ALTER TABLE on first startup.
+    from sqlalchemy import text
+    _migrations = [
+        "ALTER TABLE risks ADD COLUMN owning_vp VARCHAR(100)",
+    ]
+    with engine.connect() as _conn:
+        for _sql in _migrations:
+            try:
+                _conn.execute(text(_sql))
+                _conn.commit()
+            except Exception:
+                pass  # column already exists — safe to ignore
 
 
 

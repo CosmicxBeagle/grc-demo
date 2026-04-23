@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, use } from "react";
 import { useRouter } from "next/navigation";
 import { riskReviewsApi, risksApi } from "@/lib/api";
 import type { RiskReviewUpdate, Risk } from "@/types";
@@ -31,8 +31,8 @@ function statusColor(s?: string) {
   return map[s] ?? "bg-gray-100 text-gray-600";
 }
 
-export default function RiskHistoryPage({ params }: { params: { riskId: string } }) {
-  const { riskId } = params;
+export default function RiskHistoryPage({ params }: { params: Promise<{ riskId: string }> }) {
+  const { riskId } = use(params);
   const router = useRouter();
 
   const [risk,    setRisk]    = useState<Risk | null>(null);

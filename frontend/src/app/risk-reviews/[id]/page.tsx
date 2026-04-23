@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, use } from "react";
 import { useRouter } from "next/navigation";
 import { riskReviewsApi, risksApi } from "@/lib/api";
 import { getUser } from "@/lib/auth";
@@ -537,8 +537,8 @@ function OwnerCard({
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
-export default function CycleDetailPage({ params }: { params: { id: string } }) {
-  const { id } = params;
+export default function CycleDetailPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = use(params);
   const cycleId = Number(id);
   const router  = useRouter();
   const user    = getUser();

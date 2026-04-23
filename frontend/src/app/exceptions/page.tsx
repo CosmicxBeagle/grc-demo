@@ -475,10 +475,13 @@ function ExceptionsPageContent() {
 
               return (
                 <div key={exc.id} id={`exception-${exc.id}`} className="bg-white border border-gray-200 rounded-xl overflow-hidden scroll-mt-4">
-                  {/* Row header */}
-                  <button
-                    className="w-full text-left px-5 py-4 flex items-center gap-4 hover:bg-gray-50 transition-colors"
+                  {/* Row header — div not button so approve/reject buttons inside are valid HTML */}
+                  <div
+                    role="button"
+                    tabIndex={0}
+                    className="w-full text-left px-5 py-4 flex items-center gap-4 hover:bg-gray-50 transition-colors cursor-pointer"
                     onClick={() => setExpanded(isExpanded ? null : exc.id)}
+                    onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") setExpanded(isExpanded ? null : exc.id); }}
                   >
                     {/* Risk level pill */}
                     <SeverityBadge severity={exc.risk_level} />
@@ -533,7 +536,7 @@ function ExceptionsPageContent() {
                         </div>
                       )}
                     </div>
-                  </button>
+                  </div>
 
                   {/* Expanded detail */}
                   {isExpanded && (

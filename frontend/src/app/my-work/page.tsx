@@ -297,9 +297,12 @@ export default function MyWorkPage() {
 
                   return (
                     <div key={wf.id} className="bg-white border border-gray-200 rounded-xl overflow-hidden">
-                      <button
+                      <div
+                        role="button"
+                        tabIndex={0}
                         onClick={() => setExpanded(prev => prev === wf.id ? null : wf.id)}
-                        className="w-full text-left px-5 py-4 hover:bg-gray-50 transition-colors"
+                        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") setExpanded(prev => prev === wf.id ? null : wf.id); }}
+                        className="w-full text-left px-5 py-4 hover:bg-gray-50 transition-colors cursor-pointer"
                       >
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-3">
@@ -349,7 +352,7 @@ export default function MyWorkPage() {
                             />
                           ))}
                         </div>
-                      </button>
+                      </div>
 
                       {isOpen && (
                         <div className="border-t border-gray-100 px-5 py-4">

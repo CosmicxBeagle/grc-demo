@@ -51,7 +51,7 @@ type ColKey =
   | "asset_threat" | "score" | "likelihood" | "impact" | "residual_score" | "target_score"
   | "treatment" | "owner" | "status" | "created" | "age" | "controls" | "description"
   | "category" | "risk_type" | "department" | "owning_vp" | "stage" | "source" | "risk_theme"
-  | "date_identified" | "regulatory_compliance";
+  | "date_identified" | "date_closed" | "status_changed_closed" | "regulatory_compliance";
 
 const COLUMN_DEFS: { key: ColKey; label: string }[] = [
   { key: "score",                label: "Score"                 },
@@ -74,6 +74,8 @@ const COLUMN_DEFS: { key: ColKey; label: string }[] = [
   { key: "source",               label: "Source"               },
   { key: "risk_theme",           label: "Risk Theme"           },
   { key: "date_identified",      label: "Date Identified"      },
+  { key: "date_closed",          label: "Risk Closed Date"     },
+  { key: "status_changed_closed",label: "Status Changed Closed"},
   { key: "regulatory_compliance",label: "Regulatory Compliance"},
   { key: "description",          label: "Description"          },
 ];
@@ -868,6 +870,12 @@ function RisksPageContent() {
                 {col("date_identified") && (
                   <th className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wider text-gray-500 whitespace-nowrap">Identified</th>
                 )}
+                {col("date_closed") && (
+                  <th className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wider text-gray-500 whitespace-nowrap">Risk Closed</th>
+                )}
+                {col("status_changed_closed") && (
+                  <th className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wider text-gray-500 whitespace-nowrap">Status Closed</th>
+                )}
                 {col("regulatory_compliance") && (
                   <th className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wider text-gray-500 whitespace-nowrap">Compliance</th>
                 )}
@@ -1107,7 +1115,24 @@ function RisksPageContent() {
                     </td>
                   )}
 
-                  {/* Regulatory Compliance */}
+                  {/* Risk Closed Date */}
+                  {col("date_closed") && (
+                    <td className="px-4 py-3.5 text-xs text-gray-500 whitespace-nowrap">
+                      {risk.date_closed
+                        ? new Date(risk.date_closed).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+                        : <span className="text-gray-300">—</span>}
+                    </td>
+                  )}
+
+                  {/* Status Changed To Closed */}
+                  {col("status_changed_closed") && (
+                    <td className="px-4 py-3.5 text-xs text-gray-500 whitespace-nowrap">
+                      {risk.closed_at
+                        ? new Date(risk.closed_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+                        : <span className="text-gray-300">—</span>}
+                    </td>
+                  )}
+
                   {col("regulatory_compliance") && (
                     <td className="px-4 py-3.5 text-xs text-gray-500 max-w-[160px]">
                       {risk.regulatory_compliance
@@ -1208,3 +1233,6 @@ export default function RisksPage() {
     </AppShell>
   );
 }
+
+
+

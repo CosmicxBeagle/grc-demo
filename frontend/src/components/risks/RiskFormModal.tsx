@@ -202,8 +202,10 @@ function scoreLabel(score: number) {
 // Section header component
 function SectionHeader({ label }: { label: string }) {
   return (
-    <div className="border-t border-dashed border-gray-200 pt-4 mb-1">
-      <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">{label}</p>
+    <div className="mt-6 mb-3 flex items-center gap-3">
+      <div className="h-px flex-1 bg-slate-100" />
+      <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-[0.18em] whitespace-nowrap">{label}</p>
+      <div className="h-px flex-1 bg-slate-100" />
     </div>
   );
 }
@@ -602,11 +604,20 @@ export default function RiskFormModal({
                     className="w-full border border-gray-300 rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">Risk Opened</label>
+                  <input
+                    type="text"
+                    readOnly
+                    value={editRisk?.created_at ? new Date(editRisk.created_at).toLocaleDateString("en-US") : "Will populate automatically when created"}
+                    className="w-full border border-gray-200 bg-gray-50 rounded-lg px-2 py-2 text-sm text-gray-500"
+                  />
+                </div>
               </div>
 
               {/* ── Asset & Threat ── */}
               <SectionHeader label="Asset & Threat" />
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-2 gap-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
                 <div>
                   <div className="flex items-center justify-between mb-1">
                     <label className="text-sm font-medium text-gray-700">Asset</label>
@@ -655,7 +666,7 @@ export default function RiskFormModal({
 
               {/* ── Inherent Risk Scoring ── */}
               <SectionHeader label="Inherent Risk" />
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-2 gap-4 rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     Likelihood:{" "}
@@ -689,13 +700,13 @@ export default function RiskFormModal({
                   </div>
                 </div>
               </div>
-              <div className={`inline-flex items-center px-3 py-1.5 rounded-lg text-sm font-semibold ${scoreBg(previewScore)}`}>
+              <div className={`mt-3 inline-flex items-center px-3 py-1.5 rounded-lg text-sm font-semibold shadow-sm ${scoreBg(previewScore)}`}>
                 Inherent Score: {previewScore} — {scoreLabel(previewScore)}
               </div>
 
               {/* ── Residual Risk ── */}
               <SectionHeader label="Residual Risk — after controls applied (optional)" />
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-2 gap-4 rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     Residual Likelihood:{" "}
@@ -732,14 +743,14 @@ export default function RiskFormModal({
                 </div>
               </div>
               {residualPreview !== null && (
-                <div className={`inline-flex items-center px-3 py-1.5 rounded-lg text-sm font-semibold ${scoreBg(residualPreview)}`}>
+                <div className={`mt-3 inline-flex items-center px-3 py-1.5 rounded-lg text-sm font-semibold shadow-sm ${scoreBg(residualPreview)}`}>
                   Residual Score: {residualPreview} — {scoreLabel(residualPreview)}
                 </div>
               )}
 
               {/* ── Target Risk ── */}
               <SectionHeader label="Target Risk — desired state (optional)" />
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-2 gap-4 rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     Target Likelihood:{" "}
@@ -776,14 +787,14 @@ export default function RiskFormModal({
                 </div>
               </div>
               {targetPreview !== null && (
-                <div className={`inline-flex items-center px-3 py-1.5 rounded-lg text-sm font-semibold ${scoreBg(targetPreview)}`}>
+                <div className={`mt-3 inline-flex items-center px-3 py-1.5 rounded-lg text-sm font-semibold shadow-sm ${scoreBg(targetPreview)}`}>
                   Target Score: {targetPreview} — {scoreLabel(targetPreview)}
                 </div>
               )}
 
               {/* ── Treatment & Status ── */}
               <SectionHeader label="Treatment & Status" />
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-2 gap-4 rounded-2xl border border-amber-100 bg-amber-50/40 p-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Treatment</label>
                   <select
@@ -843,11 +854,20 @@ export default function RiskFormModal({
                   </>
                 )}
 
-                {/* Closure fields — conditional */}
+                {/* Closure fields ? conditional */}
                 {form.status === "closed" && (
                   <>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Date Closed</label>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Status Changed To Closed</label>
+                      <input
+                        type="text"
+                        readOnly
+                        value={editRisk?.closed_at ? new Date(editRisk.closed_at).toLocaleDateString("en-US") : "Will populate automatically when saved as Closed"}
+                        className="w-full border border-gray-200 bg-gray-50 rounded-lg px-3 py-2 text-sm text-gray-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Risk Closed Date</label>
                       <input
                         type="date"
                         value={form.date_closed}
@@ -871,7 +891,7 @@ export default function RiskFormModal({
 
               {/* ── Ownership ── */}
               <SectionHeader label="Ownership" />
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-2 gap-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Owner (label)</label>
                   <input
@@ -904,7 +924,7 @@ export default function RiskFormModal({
 
               {/* ── Parent Risk ── */}
               <SectionHeader label="Hierarchy" />
-              <div>
+              <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Parent Risk
                   <span className="ml-2 text-xs font-normal text-gray-400">optional — nest under a strategic risk</span>

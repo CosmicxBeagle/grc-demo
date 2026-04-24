@@ -387,6 +387,7 @@ export interface Risk {
   target_score?:          number;
   date_identified?:       string;
   date_closed?:           string;
+  closed_at?:             string;
   closing_justification?: string;
   regulatory_compliance?: string;
 }
@@ -668,3 +669,5 @@ export interface AuditLogEntry {
   ip_address:    string | null;
   request_id:    string | null;
 }
+
+

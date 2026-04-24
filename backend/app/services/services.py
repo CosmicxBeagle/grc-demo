@@ -323,6 +323,37 @@ EVIDENCE_ALLOWED_EXTENSIONS = {
 }
 EVIDENCE_MAX_BYTES = 50 * 1024 * 1024  # 50 MB
 
+# Magic-bytes signatures for binary formats.
+# Each extension maps to a tuple of acceptable byte prefixes.
+# Text-based formats (csv, txt, eml) have no reliable magic bytes — empty tuple.
+_EVIDENCE_MAGIC: dict[str, tuple[bytes, ...]] = {
+    ".pdf":  (b"%PDF",),
+    ".png":  (b"\x89PNG\r\n\x1a\n",),
+    ".jpg":  (b"\xff\xd8\xff",),
+    ".jpeg": (b"\xff\xd8\xff",),
+    ".gif":  (b"GIF87a", b"GIF89a"),
+    # Office Open XML (.docx, .xlsx) are ZIP archives
+    ".docx": (b"PK\x03\x04", b"PK\x05\x06", b"PK\x07\x08"),
+    ".xlsx": (b"PK\x03\x04", b"PK\x05\x06", b"PK\x07\x08"),
+    ".zip":  (b"PK\x03\x04", b"PK\x05\x06", b"PK\x07\x08"),
+    # Legacy Office and Outlook MSG use OLE Compound Document
+    ".doc":  (b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1",),
+    ".xls":  (b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1",),
+    ".msg":  (b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1",),
+    # Text-based — no magic bytes check
+    ".csv":  (),
+    ".txt":  (),
+    ".eml":  (),
+}
+
+
+def _evidence_magic_ok(contents: bytes, ext: str) -> bool:
+    """Return True if file bytes match the expected magic signature for ext."""
+    sigs = _EVIDENCE_MAGIC.get(ext)
+    if not sigs:
+        return True  # text format — no binary signature to verify
+    return any(contents.startswith(sig) for sig in sigs)
+
 
 class EvidenceService:
     def __init__(self, db: Session):
@@ -351,6 +382,13 @@ class EvidenceService:
             raise HTTPException(
                 status_code=413,
                 detail=f"File exceeds the {EVIDENCE_MAX_BYTES // (1024 * 1024)} MB upload limit.",
+            )
+
+        # ── Magic-bytes validation (prevents extension spoofing) ──────────
+        if not _evidence_magic_ok(contents, ext):
+            raise HTTPException(
+                status_code=400,
+                detail=f"File content does not match the expected format for '{ext}'. Upload rejected.",
             )
 
         storage_key = evidence_storage.upload(contents, ext, assignment_id)

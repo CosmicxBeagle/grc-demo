@@ -91,6 +91,17 @@ def download(storage_key: str) -> tuple[bytes, str]:
     mime, _ = mimetypes.guess_type(storage_key)
     content_type = mime or "application/octet-stream"
 
+    # Safety guardrail: never serve evidence files as text/html or executable
+    # script types — this prevents XSS if a file somehow slips through upload
+    # validation with a dangerous MIME type.
+    _UNSAFE_CONTENT_TYPES = {
+        "text/html", "application/xhtml+xml",
+        "text/javascript", "application/javascript", "application/x-javascript",
+        "application/x-httpd-php", "application/x-sh", "text/x-python",
+    }
+    if content_type in _UNSAFE_CONTENT_TYPES:
+        content_type = "application/octet-stream"
+
     if _use_blob():
         client = _blob_client(storage_key)
         try:

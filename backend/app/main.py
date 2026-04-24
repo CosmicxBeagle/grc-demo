@@ -11,6 +11,29 @@ from app.routers import auth, users, controls, test_cycles, evidence, dashboard,
 from app.middleware.correlation import CorrelationMiddleware
 from app.middleware.session_refresh import session_refresh_middleware
 
+# ── Startup security guard: SESSION_SECRET ────────────────────────────────────
+# The default secret is a well-known string committed to the repo.  Using it in
+# a non-local environment means any attacker can forge valid session cookies.
+# Refuse to start if APP_ENV is not "local" and the secret is insecure.
+_INSECURE_SESSION_SECRETS: frozenset[str] = frozenset({
+    "local-dev-session-secret-change-me",
+    "secret",
+    "changeme",
+    "change-me",
+    "password",
+    "",
+})
+
+if settings.app_env != "local":
+    if (not settings.session_secret
+            or settings.session_secret.lower() in _INSECURE_SESSION_SECRETS):
+        raise RuntimeError(
+            "FATAL: SESSION_SECRET is missing or uses a known-insecure default value. "
+            "Set a strong, randomly-generated SESSION_SECRET (≥32 chars) before "
+            "deploying to non-local environments. "
+            f"Current APP_ENV={settings.app_env!r}."
+        )
+
 # ── Audit logger — structured JSON to stdout ──────────────────────────────────
 # Azure Container Apps ships stdout to Azure Monitor automatically.
 # To forward to Sentinel / any SIEM: add a Diagnostic Setting in Azure Monitor.

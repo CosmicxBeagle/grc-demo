@@ -8,6 +8,7 @@ from app.config import settings
 from app.db.database import Base, engine
 from app.models import models  # noqa: F401 — registers all models with Base
 from app.routers import auth, users, controls, test_cycles, evidence, dashboard, deficiencies, assets, threats, risks, exports, exceptions, approvals, risk_reviews, treatment_plans, audit_logs, notifications, checklist, deficiency_milestones, health, my_work, telemetry, scim
+from app.routers.treatment_plans import treatment_escalation_router
 from app.middleware.correlation import CorrelationMiddleware
 from app.middleware.session_refresh import session_refresh_middleware
 
@@ -56,6 +57,16 @@ if settings.app_env == 'local' and settings.database_url.startswith('sqlite'):
     from sqlalchemy import text
     _migrations = [
         "ALTER TABLE risks ADD COLUMN owning_vp VARCHAR(100)",
+        # Treatment milestone execution columns (Loop 3 parity with DeficiencyMilestone)
+        "ALTER TABLE treatment_milestones ADD COLUMN escalation_level INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE treatment_milestones ADD COLUMN escalated_at TIMESTAMP",
+        "ALTER TABLE treatment_milestones ADD COLUMN extension_requested BOOLEAN NOT NULL DEFAULT 0",
+        "ALTER TABLE treatment_milestones ADD COLUMN extension_request_reason TEXT",
+        "ALTER TABLE treatment_milestones ADD COLUMN extension_requested_at TIMESTAMP",
+        "ALTER TABLE treatment_milestones ADD COLUMN extension_approved BOOLEAN",
+        "ALTER TABLE treatment_milestones ADD COLUMN extension_approved_by_user_id INTEGER REFERENCES users(id)",
+        "ALTER TABLE treatment_milestones ADD COLUMN new_due_date DATE",
+        "ALTER TABLE treatment_milestones ADD COLUMN original_due_date DATE",
     ]
     with engine.connect() as _conn:
         for _sql in _migrations:
@@ -121,6 +132,7 @@ _v1.include_router(notifications.router)
 _v1.include_router(checklist.router)
 _v1.include_router(deficiency_milestones.router)
 _v1.include_router(deficiency_milestones.escalation_router)
+_v1.include_router(treatment_escalation_router)
 _v1.include_router(my_work.router)
 _v1.include_router(telemetry.router)
 app.include_router(_v1)

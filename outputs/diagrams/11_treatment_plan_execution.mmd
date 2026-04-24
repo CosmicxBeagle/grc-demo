@@ -1,0 +1,101 @@
+%%{init: {"theme": "base", "themeVariables": {
+  "primaryColor":       "#EBF3FB",
+  "primaryBorderColor": "#2E75B6",
+  "primaryTextColor":   "#1F3864",
+  "lineColor":          "#2E75B6",
+  "secondaryColor":     "#F0FDF4",
+  "tertiaryColor":      "#FFF8EC"
+}}}%%
+%%
+%% Diagram 11 — Treatment Plan Execution
+%% Shows the full milestone-driven execution lifecycle for a treatment plan:
+%% creation → milestone tracking → escalation (levels 0→1→2) →
+%% extension request/approve/reject loop → closure.
+%%
+%% classDef palette (shared with diagrams 06–10):
+%%   process   – routine workflow steps      (light blue)
+%%   decision  – branching points            (amber)
+%%   alert1    – level-1 escalation / warn   (yellow-orange)
+%%   alert2    – level-2 escalation / block  (red)
+%%   ok        – on-track / success          (green)
+%%   terminal  – start / end states          (navy)
+%%   cron      – system / automated trigger  (purple dashed)
+%%
+flowchart TD
+    classDef process  fill:#EBF3FB,stroke:#2E75B6,color:#1F3864,stroke-width:1.5px
+    classDef decision fill:#FFF8EC,stroke:#F59E0B,color:#3D2B00,stroke-width:1.5px
+    classDef alert1   fill:#FEF3C7,stroke:#D97706,color:#92400E,stroke-width:2px
+    classDef alert2   fill:#FEE2E2,stroke:#DC2626,color:#7F1D1D,stroke-width:2px,font-weight:bold
+    classDef ok       fill:#F0FDF4,stroke:#16A34A,color:#14532D,stroke-width:1.5px
+    classDef terminal fill:#1F3864,stroke:#1F3864,color:#FFFFFF,stroke-width:2px
+    classDef cron     fill:#F5F3FF,stroke:#7C3AED,color:#4C1D95,stroke-width:1.5px,stroke-dasharray:4 2
+
+    %% ── Start ────────────────────────────────────────────────────────────────
+    START([Treatment Plan Created\nStrategy · Owner · Target date]):::terminal
+
+    %% ── Milestone setup ──────────────────────────────────────────────────────
+    DEF[Define Milestones\nTitle · Assigned owner · Due date · Sort order]:::process
+
+    %% ── Daily automated check ────────────────────────────────────────────────
+    CRON[[Daily Cron Job\nrun_treatment_escalations]]:::cron
+
+    %% ── Is anything overdue? ─────────────────────────────────────────────────
+    OVR{Milestone past\ndue date?}:::decision
+
+    ONTRACK[On Track\nNo automated action\nOwner updates status normally]:::ok
+
+    %% ── Escalation levels ────────────────────────────────────────────────────
+    L1["Level 1 Escalation\nNotify assignee: email + in-app\nStatus → overdue"]:::alert1
+    L2["Level 2 Escalation\nNotify GRC managers\nManager intervention required"]:::alert2
+
+    %% ── Assignee response (after level-1 notification) ───────────────────────
+    RESP{Assignee\nresponse?}:::decision
+
+    %% ── Manager response (after level-2 notification) ────────────────────────
+    MRESP{Manager\nresponse?}:::decision
+
+    %% ── Extension flow ───────────────────────────────────────────────────────
+    EREQ["Extension Requested\nReason recorded · Managers notified\nextension_requested = true"]:::alert1
+    EDEC{Approve\nextension?}:::decision
+    EAPP["Extension Approved\nNew due date written to due_date\nEscalation level reset to 0"]:::ok
+    EREJ["Extension Rejected\nOriginal due date stands\nAssignee notified"]:::alert2
+
+    %% ── Milestone completion ─────────────────────────────────────────────────
+    COMP["Milestone Completed\nStatus → completed\ncompleted_at timestamp stamped"]:::ok
+
+    %% ── Plan closure check ───────────────────────────────────────────────────
+    ALLCOMP{All milestones\ncompleted?}:::decision
+
+    %% ── End ──────────────────────────────────────────────────────────────────
+    CLOSED([Treatment Plan → Closed\nAudit event emitted · Residual risk re-scored]):::terminal
+
+    %% ── Edges ────────────────────────────────────────────────────────────────
+    START    --> DEF
+    DEF      --> CRON
+    CRON     --> OVR
+
+    OVR      -->|Not overdue| ONTRACK
+    OVR      -->|"Overdue (escalation_level = 0)"| L1
+    OVR      -->|"Overdue (escalation_level = 1)"| L2
+
+    ONTRACK  -->|Owner marks complete| COMP
+    ONTRACK  -.->|Next day check| CRON
+
+    L1       --> RESP
+    RESP     -->|Completes milestone| COMP
+    RESP     -->|Requests extension| EREQ
+    RESP     -->|No response — next day| L2
+
+    L2       --> MRESP
+    MRESP    -->|Owner completes| COMP
+    MRESP    -->|Requests extension| EREQ
+
+    EREQ     --> EDEC
+    EDEC     -->|Yes| EAPP
+    EDEC     -->|No| EREJ
+    EAPP     -.->|Back to monitoring| CRON
+    EREJ     -.->|Back to monitoring| CRON
+
+    COMP     --> ALLCOMP
+    ALLCOMP  -->|No — remaining milestones| CRON
+    ALLCOMP  -->|Yes| CLOSED

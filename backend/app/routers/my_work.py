@@ -13,8 +13,8 @@ from app.db.database import get_db
 from app.auth.local_auth import get_current_user
 from app.auth.permissions import require_any_permission
 from app.models.models import (
-    User, TestAssignment, DeficiencyMilestone, RiskReviewRequest,
-    ControlException, TestCycle,
+    User, TestAssignment, DeficiencyMilestone, TreatmentMilestone,
+    TreatmentPlan, RiskReviewRequest, ControlException, TestCycle,
 )
 
 router = APIRouter(prefix="/my-work", tags=["my-work"])
@@ -146,6 +146,58 @@ def get_work_queue(
             urgency=_urgency(days, m.escalation_level),
             url=f"/deficiencies?id={m.deficiency_id}",
         ))
+
+    # ── Treatment-plan milestones assigned to user ────────────────────────────
+    treatment_milestones = (
+        db.query(TreatmentMilestone)
+        .options(
+            joinedload(TreatmentMilestone.plan).joinedload(TreatmentPlan.risk),
+        )
+        .filter(
+            TreatmentMilestone.assigned_to_id == user.id,
+            TreatmentMilestone.status.notin_(["completed"]),
+        )
+        .all()
+    )
+    for m in treatment_milestones:
+        due  = m.due_date
+        days = _days_overdue(due)
+        if m.plan and m.plan.risk:
+            context = f"Risk: {m.plan.risk.title}"
+        else:
+            context = f"Treatment Plan #{m.plan_id}"
+        items.append(WorkItem(
+            item_type="treatment_milestone_due",
+            entity_id=m.id,
+            entity_type="treatment_milestone",
+            title=f"Treatment Milestone: {m.title} ({context})",
+            due_date=due.isoformat() if due else None,
+            days_overdue=days,
+            urgency=_urgency(days, m.escalation_level),
+            url=f"/risks?treatment_plan={m.plan_id}",
+        ))
+
+    # ── Treatment milestone extension requests pending (for managers) ─────────
+    if is_manager:
+        pending_tm_extensions = (
+            db.query(TreatmentMilestone)
+            .filter(
+                TreatmentMilestone.extension_requested == True,
+                TreatmentMilestone.extension_approved.is_(None),
+            )
+            .all()
+        )
+        for m in pending_tm_extensions:
+            items.append(WorkItem(
+                item_type="treatment_extension_request_pending",
+                entity_id=m.id,
+                entity_type="treatment_milestone",
+                title=f"Extension Request (Treatment): {m.title}",
+                due_date=m.due_date.isoformat() if m.due_date else None,
+                days_overdue=_days_overdue(m.due_date),
+                urgency="medium",
+                url=f"/risks?treatment_plan={m.plan_id}",
+            ))
 
     # ── Risk review requests ───────────────────────────────────────────────────
     review_requests = (

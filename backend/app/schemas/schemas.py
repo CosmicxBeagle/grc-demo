@@ -1040,6 +1040,17 @@ class TreatmentMilestoneOut(BaseModel):
     status:         str
     completed_at:   Optional[datetime] = None
     sort_order:     int
+    # Escalation tracking
+    escalation_level:              int = 0
+    escalated_at:                  Optional[datetime] = None
+    # Extension request workflow
+    extension_requested:           bool = False
+    extension_request_reason:      Optional[str] = None
+    extension_requested_at:        Optional[datetime] = None
+    extension_approved:            Optional[bool] = None
+    extension_approved_by_user_id: Optional[int] = None
+    original_due_date:             Optional[date] = None
+    new_due_date:                  Optional[date] = None
     model_config = {"from_attributes": True}
 
 class TreatmentPlanCreate(BaseModel):

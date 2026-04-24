@@ -368,8 +368,32 @@ class TreatmentMilestone(Base):
     completed_at   = Column(DateTime, nullable=True)
     sort_order     = Column(Integer, default=0)
 
-    plan        = relationship("TreatmentPlan", back_populates="milestones")
-    assigned_to = relationship("User", foreign_keys=[assigned_to_id])
+    # ── Escalation tracking (mirrors DeficiencyMilestone) ────────────────────
+    escalation_level              = Column(Integer, default=0, nullable=False)
+    escalated_at                  = Column(DateTime, nullable=True)
+
+    # ── Extension request workflow ────────────────────────────────────────────
+    extension_requested           = Column(Boolean, default=False, nullable=False)
+    extension_request_reason      = Column(Text, nullable=True)
+    extension_requested_at        = Column(DateTime, nullable=True)
+    extension_approved            = Column(Boolean, nullable=True)  # None=pending, True=approved, False=rejected
+    extension_approved_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    new_due_date                  = Column(Date, nullable=True)
+    original_due_date             = Column(Date, nullable=True)
+
+    plan                  = relationship("TreatmentPlan", back_populates="milestones")
+    assigned_to           = relationship("User", foreign_keys=[assigned_to_id])
+    extension_approved_by = relationship("User", foreign_keys=[extension_approved_by_user_id])
+
+    # Property aliases so generic escalation helpers can use .assignee / .assignee_id
+    # on both DeficiencyMilestone and TreatmentMilestone without branching.
+    @property
+    def assignee(self):
+        return self.assigned_to
+
+    @property
+    def assignee_id(self):
+        return self.assigned_to_id
 
 
 class RiskControl(Base):

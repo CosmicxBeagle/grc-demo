@@ -1,0 +1,90 @@
+%%{init: {"theme": "base", "themeVariables": {
+  "primaryColor":       "#EBF3FB",
+  "primaryBorderColor": "#2E75B6",
+  "primaryTextColor":   "#1F3864",
+  "lineColor":          "#2E75B6",
+  "secondaryColor":     "#F0FDF4",
+  "tertiaryColor":      "#FFF8EC"
+}}}%%
+%%
+%% Diagram 06 — Risk Management Lifecycle (overview)
+%%
+%% classDef palette (shared with diagrams 07–11):
+%%   process   – routine workflow steps      (light blue)
+%%   decision  – branching points            (amber)
+%%   alert     – warning / overdue           (yellow-orange)
+%%   ok        – accepted / success          (green)
+%%   terminal  – start / end states          (navy)
+%%   score     – scoring / matrix steps      (purple)
+%%   ref       – cross-reference to another  (sky-blue dashed italic)
+%%               diagram; drill into that
+%%               diagram for the full detail
+%%
+flowchart TD
+    classDef process  fill:#EBF3FB,stroke:#2E75B6,color:#1F3864,stroke-width:1.5px
+    classDef decision fill:#FFF8EC,stroke:#F59E0B,color:#3D2B00,stroke-width:1.5px
+    classDef alert    fill:#FEF3C7,stroke:#D97706,color:#92400E,stroke-width:2px
+    classDef ok       fill:#F0FDF4,stroke:#16A34A,color:#14532D,stroke-width:1.5px
+    classDef terminal fill:#1F3864,stroke:#1F3864,color:#FFFFFF,stroke-width:2px
+    classDef score    fill:#FDF4FF,stroke:#A21CAF,color:#4A044E,stroke-width:1.5px
+    classDef ref      fill:#F0F9FF,stroke:#0284C7,color:#0C4A6E,stroke-width:2px,stroke-dasharray:6 2,font-style:italic
+
+    %% ── Identification ───────────────────────────────────────────────────────
+    INTAKE{Risk Intake\nSource}:::decision
+    RISKLOG([Risk Logged\nin Register]):::terminal
+
+    %% ── Assessment ───────────────────────────────────────────────────────────
+    ASSESS["Risk Assessed\nLikelihood × Impact matrix\nInherent risk score set"]:::score
+
+    %% ── Strategy selection ───────────────────────────────────────────────────
+    STRATEGY{Treatment\nStrategy}:::decision
+
+    ACCEPT[Risk Accepted\nOwner sign-off · Annual review]:::ok
+    AVOID[Risk Avoided\nActivity discontinued]:::ok
+    TRANSFER[Risk Transferred\nInsurance / contract clause]:::ok
+    MITIGATE[Mitigate\nTreatment Plan Created]:::process
+
+    %% ── Treatment plan execution (drill-through) ─────────────────────────────
+    %% OLD node (replaced):
+    %%   TP_EXEC[Treatment Plan\nMilestones Tracked]:::process
+    %%
+    %% NEW node — reference link to the detailed execution diagram:
+    TP_EXEC["→ Treatment Plan Execution\n   See: 11_treatment_plan_execution.mmd\n   Milestones · Escalation · Extension loop"]:::ref
+
+    %% ── Controls & residual scoring ──────────────────────────────────────────
+    CTRL[Control Linked\nExisting or new control mapped]:::process
+    RESIDUAL["Residual Risk Scored\nPost-control Likelihood × Impact"]:::score
+
+    %% ── Review decision ──────────────────────────────────────────────────────
+    REVIEW{Residual risk\nacceptable?}:::decision
+
+    %% ── Ongoing monitoring ───────────────────────────────────────────────────
+    MONITOR[Periodic Review\nQuarterly risk-review campaign]:::process
+
+    %% ── End states ───────────────────────────────────────────────────────────
+    CLOSED([Risk Closed / Accepted\nFull audit trail complete]):::terminal
+
+    %% ── Intake paths (nine sources — see presentation slide 18) ──────────────
+    INTAKE -->|"Asset + Threat pairing\nAudit finding · Incident\nRegulatory / Business change\nThreat intel · Ad-hoc"| RISKLOG
+
+    RISKLOG  --> ASSESS
+    ASSESS   --> STRATEGY
+
+    STRATEGY -->|Accept|    ACCEPT
+    STRATEGY -->|Avoid|     AVOID
+    STRATEGY -->|Transfer|  TRANSFER
+    STRATEGY -->|Mitigate|  MITIGATE
+
+    MITIGATE --> TP_EXEC
+    TP_EXEC  --> CTRL
+
+    ACCEPT   --> MONITOR
+    AVOID    --> CLOSED
+    TRANSFER --> MONITOR
+
+    CTRL     --> RESIDUAL
+    RESIDUAL --> REVIEW
+    REVIEW   -->|"Yes — risk within appetite"| MONITOR
+    REVIEW   -->|"No — re-treat"| MITIGATE
+
+    MONITOR  --> CLOSED

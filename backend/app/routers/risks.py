@@ -5,9 +5,10 @@ from fastapi import APIRouter, Depends, Request, Query, UploadFile, File, HTTPEx
 from sqlalchemy.orm import Session
 from typing import Optional
 from app.db.database import get_db
-from app.schemas.schemas import RiskCreate, RiskUpdate, RiskOut, RiskControlCreate, PaginatedRiskResponse
+from app.schemas.schemas import RiskCreate, RiskUpdate, RiskOut, RiskControlCreate, PaginatedRiskResponse, RiskHistoryOut
 from app.services.services import RiskService
 from app.services import audit_service
+from app.services import risk_history_service as rh
 from app.auth.permissions import require_permission
 from app.models.models import User
 
@@ -204,6 +205,16 @@ def get_risk(
     return RiskService(db).get(risk_id)
 
 
+@router.get("/{risk_id}/history", response_model=list[RiskHistoryOut])
+def get_risk_history(
+    risk_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_permission("risks:read")),
+):
+    """Unified chronological event log for a risk."""
+    return rh.get_unified_history(db, risk_id)
+
+
 @router.post("", response_model=RiskOut, status_code=201)
 def create_risk(
     data: RiskCreate,
@@ -217,6 +228,12 @@ def create_risk(
         resource_type="Risk", resource_id=result.id, resource_name=result.name,
         after=_snap(result), request=request,
     )
+    rh.log_event(
+        db, result.id, "created", current_user,
+        summary=f"Risk created by {current_user.display_name}",
+        new_status=result.status,
+    )
+    db.commit()
     return result
 
 
@@ -232,11 +249,22 @@ def update_risk(
     before_obj = svc.get(risk_id)
     before = _snap(before_obj)
     result = svc.update(risk_id, data)
+    after = _snap(result)
     audit_service.emit(db,
         "RISK_UPDATED", actor=current_user,
         resource_type="Risk", resource_id=result.id, resource_name=result.name,
-        before=before, after=_snap(result), request=request,
+        before=before, after=after, request=request,
     )
+    changes = rh.diff_snaps(before, after)
+    if changes:
+        rh.log_event(
+            db, result.id, "field_changed", current_user,
+            summary=rh.make_summary(current_user.display_name, changes),
+            old_status=before.get("status"),
+            new_status=after.get("status") if "status" in changes else None,
+            changed_fields=changes,
+        )
+        db.commit()
     return result
 
 

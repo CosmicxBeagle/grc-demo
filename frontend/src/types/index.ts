@@ -524,6 +524,57 @@ export interface RiskAgingBuckets {
   "365_plus": number;
 }
 
+export interface RiskSeverityBreakdown {
+  low:      number;
+  medium:   number;
+  high:     number;
+  critical: number;
+}
+
+export interface RiskOwnerMetric {
+  name:      string;
+  count:     number;
+  avg_score: number;
+}
+
+export interface RiskManagedStatus {
+  new:                   number;
+  managed_with_dates:    number;
+  managed_without_dates: number;
+  unmanaged:             number;
+  closed:                number;
+}
+
+export interface RiskTreatmentBreakdown {
+  mitigate: number;
+  accept:   number;
+  transfer: number;
+  avoid:    number;
+}
+
+export interface RiskRemediationMetrics {
+  total_plans:          number;
+  in_progress:          number;
+  completed:            number;
+  on_hold:              number;
+  cancelled:            number;
+  milestones_total:     number;
+  milestones_completed: number;
+  milestones_overdue:   number;
+}
+
+export interface RiskDepartmentMetric {
+  name:  string;
+  count: number;
+}
+
+export interface RiskQuarterlyBucket {
+  quarter:  string;
+  high:     number;
+  critical: number;
+  total:    number;
+}
+
 export interface DashboardStats {
   total_controls: number;
   active_controls: number;
@@ -546,6 +597,39 @@ export interface DashboardStats {
   exception_approved: number;
   exception_expiring_soon: number;
   risk_aging: RiskAgingBuckets;
+  // Risk analytics
+  total_risks:         number;
+  open_risks:          number;
+  high_critical_risks: number;
+  avg_risk_score:      number;
+  risk_severity:       RiskSeverityBreakdown;
+  risk_managed_status: RiskManagedStatus;
+  risk_treatment:      RiskTreatmentBreakdown;
+  risk_owners:         RiskOwnerMetric[];
+  risk_vps:            RiskOwnerMetric[];
+  risk_departments:    RiskDepartmentMetric[];
+  risk_quarterly:      RiskQuarterlyBucket[];
+  risk_remediation:    RiskRemediationMetrics;
+}
+
+// ── Risk History ──────────────────────────────────────────────────────────────
+
+export interface RiskHistoryEntry {
+  id:           number | string;
+  source:       "history" | "review";
+  event_type:   "created" | "field_changed" | "review_submitted" | "review_accepted" | "review_challenged" | "challenge_responded";
+  actor_name:   string | null;
+  summary:      string;
+  old_status:   string | null;
+  new_status:   string | null;
+  changed_fields: Record<string, { before: unknown; after: unknown }> | null;
+  notes:        string | null;
+  // review-specific extras
+  mitigation_progress?:       string | null;
+  grc_review_status?:         string | null;
+  grc_challenge_reason?:      string | null;
+  owner_challenge_response?:  string | null;
+  created_at:   string | null;
 }
 
 // ── Risk Reviews ──────────────────────────────────────────────────────────────
@@ -556,18 +640,20 @@ export type ReviewRequestStatus = "pending" | "updated" | "overdue";
 export type RiskSeverity = "low" | "medium" | "high" | "critical";
 
 export interface RiskReviewCycle {
-  id:            number;
-  label:         string;
-  cycle_type:    ReviewCycleType;
-  year?:         number;
-  min_score:     number;
-  severities?:   string;   // comma-sep: low,medium,high,critical
-  status:        ReviewCycleStatus;
-  scope_note?:   string;
-  created_by?:   number;
-  launched_at?:  string;
-  closed_at?:    string;
-  created_at:    string;
+  id:                number;
+  label:             string;
+  cycle_type:        ReviewCycleType;
+  year?:             number;
+  min_score:         number;
+  severities?:       string;   // comma-sep: low,medium,high,critical
+  risk_ids_filter?:  string;   // comma-sep risk IDs; if set, overrides severity scoping
+  owner_ids_filter?: string;   // comma-sep user IDs; if set, scopes to these owners
+  status:            ReviewCycleStatus;
+  scope_note?:       string;
+  created_by?:       number;
+  launched_at?:      string;
+  closed_at?:        string;
+  created_at:        string;
   // computed
   request_count: number;
   pending_count: number;

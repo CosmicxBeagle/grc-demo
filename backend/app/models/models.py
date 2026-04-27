@@ -334,6 +334,36 @@ class Risk(Base):
     # Self-referential parent/child hierarchy
     children = relationship("Risk", foreign_keys=[parent_risk_id],
                             backref=backref("parent_risk", remote_side=[id]))
+    history = relationship("RiskHistoryEntry", back_populates="risk",
+                           cascade="all, delete-orphan", order_by="RiskHistoryEntry.created_at.desc()")
+
+
+class RiskHistoryEntry(Base):
+    """
+    Unified audit trail for a risk — covers every write event:
+      created            – risk first created
+      field_changed      – any direct edit (status, score, owner, etc.)
+      review_submitted   – risk owner submitted a review-cycle update
+      review_accepted    – GRC accepted a review update
+      review_challenged  – GRC challenged a review update
+      challenge_responded – owner replied to a GRC challenge
+    """
+    __tablename__ = "risk_history"
+
+    id             = Column(Integer, primary_key=True, index=True)
+    risk_id        = Column(Integer, ForeignKey("risks.id", ondelete="CASCADE"), nullable=False, index=True)
+    event_type     = Column(String(50), nullable=False)
+    actor_id       = Column(Integer, ForeignKey("users.id"), nullable=True)
+    actor_name     = Column(String(200), nullable=True)   # denormalized — survives user deletion
+    summary        = Column(String(500), nullable=True)   # human-readable one-liner
+    old_status     = Column(String(50), nullable=True)
+    new_status     = Column(String(50), nullable=True)
+    changed_fields = Column(Text, nullable=True)          # JSON: {field: {before, after}}
+    notes          = Column(Text, nullable=True)
+    created_at     = Column(DateTime, default=datetime.utcnow)
+
+    risk  = relationship("Risk", back_populates="history")
+    actor = relationship("User", foreign_keys=[actor_id])
 
 
 class TreatmentPlan(Base):
@@ -569,8 +599,10 @@ class RiskReviewCycle(Base):
     label       = Column(String(200), nullable=False)
     cycle_type  = Column(String(20), nullable=False)     # label only: jan | jul | quarterly | monthly | ad_hoc
     year        = Column(Integer, nullable=True)
-    min_score   = Column(Integer, default=0, nullable=False)  # legacy — kept for old cycles
-    severities  = Column(Text, nullable=True)                # comma-sep: low,medium,high,critical
+    min_score        = Column(Integer, default=0, nullable=False)  # legacy — kept for old cycles
+    severities       = Column(Text, nullable=True)                 # comma-sep: low,medium,high,critical
+    risk_ids_filter  = Column(Text, nullable=True)                 # comma-sep risk IDs; if set, use exactly these risks
+    owner_ids_filter = Column(Text, nullable=True)                 # comma-sep user IDs; if set, scope to these owners
     status      = Column(String(20), default="draft")    # draft | active | closed
     scope_note  = Column(Text, nullable=True)
     created_by  = Column(Integer, ForeignKey("users.id"), nullable=True)

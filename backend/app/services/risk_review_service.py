@@ -29,10 +29,11 @@ from app.services.email_service import (
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _score_tier(likelihood: int, impact: int) -> str:
+    """Display tier for emails / dicts. Must match _severity_for_score thresholds."""
     score = (likelihood or 1) * (impact or 1)
     if score >= 20: return "critical"
-    if score >= 12: return "high"
-    if score >= 4:  return "medium"
+    if score >= 15: return "high"
+    if score >= 9:  return "medium"
     return "low"
 
 
@@ -81,16 +82,20 @@ def create_cycle(
     created_by: int,
     min_score: int = 0,
     severities: Optional[str] = None,
+    risk_ids_filter:  Optional[str] = None,
+    owner_ids_filter: Optional[str] = None,
 ) -> RiskReviewCycle:
     cycle = RiskReviewCycle(
-        label      = label,
-        cycle_type = cycle_type,
-        year       = year,
-        scope_note = scope_note,
-        created_by = created_by,
-        min_score  = min_score,
-        severities = severities,
-        status     = "draft",
+        label            = label,
+        cycle_type       = cycle_type,
+        year             = year,
+        scope_note       = scope_note,
+        created_by       = created_by,
+        min_score        = min_score,
+        severities       = severities,
+        risk_ids_filter  = risk_ids_filter,
+        owner_ids_filter = owner_ids_filter,
+        status           = "draft",
     )
     db.add(cycle)
     db.commit()
@@ -131,13 +136,21 @@ def populate_cycle(db: Session, cycle_id: int) -> dict:
     if cycle.status not in ("draft", "active"):
         raise HTTPException(400, "Cycle is already closed")
 
-    risks = db.query(Risk).filter(
-        Risk.owner_id.isnot(None),
-        Risk.status.notin_(["closed"]),
-    ).all()
+    if cycle.risk_ids_filter:
+        # Hand-picked specific risks — use exactly these IDs (must have an owner)
+        risk_ids = [int(x.strip()) for x in cycle.risk_ids_filter.split(",") if x.strip().isdigit()]
+        risks    = db.query(Risk).filter(Risk.id.in_(risk_ids), Risk.owner_id.isnot(None)).all()
+        in_scope = risks
+    else:
+        # Auto-scope: start with open, owner-assigned risks
+        q = db.query(Risk).filter(Risk.owner_id.isnot(None), Risk.status.notin_(["closed"]))
+        if cycle.owner_ids_filter:
+            owner_ids = [int(x.strip()) for x in cycle.owner_ids_filter.split(",") if x.strip().isdigit()]
+            q = q.filter(Risk.owner_id.in_(owner_ids))
+        risks    = q.all()
+        in_scope = [r for r in risks if _in_scope_for_cycle(r, cycle)]
 
-    in_scope = [r for r in risks if _in_scope_for_cycle(r, cycle)]
-    skipped  = len([r for r in db.query(Risk).all() if r.owner_id is None])
+    skipped = len([r for r in db.query(Risk).filter(Risk.owner_id.is_(None)).all()])
 
     requests_created = 0
     now = datetime.utcnow()

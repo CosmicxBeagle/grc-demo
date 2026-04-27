@@ -5,17 +5,17 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
-from app.db.database import Base, engine
 from app.models import models  # noqa: F401 — registers all models with Base
 from app.routers import auth, users, controls, test_cycles, evidence, dashboard, deficiencies, assets, threats, risks, exports, exceptions, approvals, risk_reviews, treatment_plans, audit_logs, notifications, checklist, deficiency_milestones, health, my_work, telemetry, scim
 from app.routers.treatment_plans import treatment_escalation_router
 from app.middleware.correlation import CorrelationMiddleware
 from app.middleware.session_refresh import session_refresh_middleware
 
-# ── Startup security guard: SESSION_SECRET ────────────────────────────────────
-# The default secret is a well-known string committed to the repo.  Using it in
-# a non-local environment means any attacker can forge valid session cookies.
-# Refuse to start if APP_ENV is not "local" and the secret is insecure.
+# ── Startup security guards ───────────────────────────────────────────────────
+# These checks run at import time (before the first request) and crash the
+# process if the deployment configuration is insecure.  It is intentionally
+# impossible to accidentally run an insecure config in a non-local environment.
+
 _INSECURE_SESSION_SECRETS: frozenset[str] = frozenset({
     "local-dev-session-secret-change-me",
     "secret",
@@ -25,14 +25,49 @@ _INSECURE_SESSION_SECRETS: frozenset[str] = frozenset({
     "",
 })
 
+_SESSION_SECRET_MIN_LENGTH = 32
+
 if settings.app_env != "local":
-    if (not settings.session_secret
-            or settings.session_secret.lower() in _INSECURE_SESSION_SECRETS):
+    # 1. SESSION_SECRET — must be set, not a known default, and ≥32 chars.
+    _secret = settings.session_secret or ""
+    if not _secret or _secret.lower() in _INSECURE_SESSION_SECRETS:
         raise RuntimeError(
             "FATAL: SESSION_SECRET is missing or uses a known-insecure default value. "
             "Set a strong, randomly-generated SESSION_SECRET (≥32 chars) before "
             "deploying to non-local environments. "
             f"Current APP_ENV={settings.app_env!r}."
+        )
+    if len(_secret) < _SESSION_SECRET_MIN_LENGTH:
+        raise RuntimeError(
+            f"FATAL: SESSION_SECRET is too short ({len(_secret)} chars). "
+            f"Use at least {_SESSION_SECRET_MIN_LENGTH} characters. "
+            "Generate one with: python -c \"import secrets; print(secrets.token_urlsafe(48))\""
+        )
+
+    # 2. DEMO_AUTH_ENABLED — must be false outside local.  demo auth bypasses
+    #    all password/IdP checks and is a development convenience only.
+    if settings.demo_auth_enabled:
+        raise RuntimeError(
+            "FATAL: DEMO_AUTH_ENABLED=true is not permitted outside local environments. "
+            "Demo auth allows login with any username and no password. "
+            "Set DEMO_AUTH_ENABLED=false before deploying. "
+            f"Current APP_ENV={settings.app_env!r}."
+        )
+
+    # 3. CORS_ORIGINS — must not contain localhost or wildcard in non-local envs.
+    #    A localhost origin in production CORS allows any local process on the
+    #    server (or a visitor's machine in some attack scenarios) to make
+    #    credentialed cross-origin requests.
+    _bad_cors = [
+        o for o in settings.cors_origins_list
+        if "localhost" in o or "127.0.0.1" in o or o.strip() == "*"
+    ]
+    if _bad_cors:
+        raise RuntimeError(
+            "FATAL: CORS_ORIGINS contains insecure origins for a non-local environment: "
+            f"{_bad_cors}. "
+            "Remove localhost/127.0.0.1/wildcard entries and set only your production "
+            f"HTTPS origin(s). Current APP_ENV={settings.app_env!r}."
         )
 
 # ── Audit logger — structured JSON to stdout ──────────────────────────────────
@@ -44,37 +79,16 @@ logging.getLogger("audit").addHandler(_audit_handler)
 logging.getLogger("audit").setLevel(logging.INFO)
 logging.getLogger("audit").propagate = False
 
-# ── Schema bootstrap ──────────────────────────────────────────────────────────
-# create_all() is a no-op on existing tables — it only creates missing ones
-# (safe for fresh installs and test fixtures).
-# Alembic then applies any pending incremental migrations, replacing the old
-# startup-time ALTER TABLE patch script.
-if settings.app_env == 'local' and settings.database_url.startswith('sqlite'):
-    Base.metadata.create_all(bind=engine)
-    # Incremental column additions for existing local databases.
-    # create_all() above only creates missing tables, not missing columns,
-    # so new nullable columns need a one-time ALTER TABLE on first startup.
-    from sqlalchemy import text
-    _migrations = [
-        "ALTER TABLE risks ADD COLUMN owning_vp VARCHAR(100)",
-        # Treatment milestone execution columns (Loop 3 parity with DeficiencyMilestone)
-        "ALTER TABLE treatment_milestones ADD COLUMN escalation_level INTEGER NOT NULL DEFAULT 0",
-        "ALTER TABLE treatment_milestones ADD COLUMN escalated_at TIMESTAMP",
-        "ALTER TABLE treatment_milestones ADD COLUMN extension_requested BOOLEAN NOT NULL DEFAULT 0",
-        "ALTER TABLE treatment_milestones ADD COLUMN extension_request_reason TEXT",
-        "ALTER TABLE treatment_milestones ADD COLUMN extension_requested_at TIMESTAMP",
-        "ALTER TABLE treatment_milestones ADD COLUMN extension_approved BOOLEAN",
-        "ALTER TABLE treatment_milestones ADD COLUMN extension_approved_by_user_id INTEGER REFERENCES users(id)",
-        "ALTER TABLE treatment_milestones ADD COLUMN new_due_date DATE",
-        "ALTER TABLE treatment_milestones ADD COLUMN original_due_date DATE",
-    ]
-    with engine.connect() as _conn:
-        for _sql in _migrations:
-            try:
-                _conn.execute(text(_sql))
-                _conn.commit()
-            except Exception:
-                pass  # column already exists — safe to ignore
+# ── Schema ────────────────────────────────────────────────────────────────────
+# Schema is managed exclusively by Alembic.
+# - Local dev:  run `alembic upgrade head` once before starting the server,
+#               or use start.sh which does it automatically.
+# - Production: run migrations as a deliberate release step (e.g. a CI/CD job
+#               or init-container) before rolling out new app instances.
+#               Set RUN_MIGRATIONS=false in start.sh to skip the auto-run.
+# Do NOT add any CREATE TABLE / ALTER TABLE logic here — it creates a second
+# schema-evolution path that drifts from the Alembic chain and breaks
+# sandbox/prod promotion.
 
 
 

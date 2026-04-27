@@ -21,6 +21,7 @@ import {
   ArchiveBoxIcon,
   FunnelIcon,
   XMarkIcon,
+  CheckCircleIcon,
 } from "@heroicons/react/24/outline";
 
 const PAGE_SIZE = 20;
@@ -84,12 +85,110 @@ function ProgressBar({ complete, total }: { complete: number; total: number }) {
   );
 }
 
+// ─── Edit dialog ───────────────────────────────────────────────────────────────
+
+function EditCycleDialog({
+  cycle,
+  onClose,
+  onSaved,
+}: {
+  cycle: TestCycleSummary;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [name, setName]           = useState(cycle.name);
+  const [startDate, setStartDate] = useState(cycle.start_date ?? "");
+  const [endDate, setEndDate]     = useState(cycle.end_date ?? "");
+  const [saving, setSaving]       = useState(false);
+  const [err, setErr]             = useState<string | null>(null);
+
+  async function handleSave() {
+    if (!name.trim()) { setErr("Name is required."); return; }
+    setSaving(true);
+    setErr(null);
+    try {
+      await cyclesApi.update(cycle.id, {
+        name: name.trim(),
+        start_date: startDate || null,
+        end_date:   endDate   || null,
+      });
+      onSaved();
+      onClose();
+    } catch (e: unknown) {
+      const detail = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      setErr(detail ?? "Could not save changes.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6 space-y-4" onClick={e => e.stopPropagation()}>
+        <h2 className="text-base font-semibold text-gray-900">Edit Cycle</h2>
+
+        <div className="space-y-3">
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Name</label>
+            <input
+              autoFocus
+              value={name}
+              onChange={e => setName(e.target.value)}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Start Date</label>
+              <input
+                type="date"
+                value={startDate}
+                onChange={e => setStartDate(e.target.value)}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">End Date</label>
+              <input
+                type="date"
+                value={endDate}
+                onChange={e => setEndDate(e.target.value)}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+              />
+            </div>
+          </div>
+        </div>
+
+        {err && <p className="text-xs text-red-600 bg-red-50 rounded-lg px-3 py-2">{err}</p>}
+
+        <div className="flex justify-end gap-2 pt-1">
+          <button
+            onClick={onClose}
+            className="px-4 py-2 text-sm text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            className="px-4 py-2 text-sm font-medium bg-brand-600 text-white rounded-lg hover:bg-brand-700 transition-colors disabled:opacity-50"
+          >
+            {saving ? "Saving…" : "Save Changes"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Action menu ───────────────────────────────────────────────────────────────
 
 function ActionMenu({ cycle, onClosed }: { cycle: TestCycleSummary; onClosed: () => void }) {
-  const [open, setOpen] = useState(false);
-  const [closing, setClosing] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
+  const [open, setOpen]         = useState(false);
+  const [closing, setClosing]   = useState(false);
+  const [duplicating, setDuplicating] = useState(false);
+  const [showEdit, setShowEdit] = useState(false);
+  const [err, setErr]           = useState<string | null>(null);
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -117,55 +216,95 @@ function ActionMenu({ cycle, onClosed }: { cycle: TestCycleSummary; onClosed: ()
     }
   };
 
+  const handleDuplicate = async () => {
+    setOpen(false);
+    const currentUser = getUser();
+    if (!currentUser) { setErr("Not authenticated."); return; }
+    setDuplicating(true);
+    setErr(null);
+    try {
+      await cyclesApi.create({
+        name:        `Copy of ${cycle.name}`,
+        start_date:  null,
+        end_date:    null,
+        status:      "planned",
+        brand:       cycle.brand ?? null,
+        created_by:  currentUser.id,
+        assignments: [],
+      });
+      onClosed();
+    } catch (e: unknown) {
+      const detail = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      setErr(detail ?? "Could not duplicate cycle.");
+    } finally {
+      setDuplicating(false);
+    }
+  };
+
   const isClosed = cycle.status === "completed";
 
   return (
-    <div className="relative" onClick={e => e.stopPropagation()}>
-      <div ref={ref}>
-        <button
-          onClick={() => setOpen(o => !o)}
-          className="p-1.5 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100"
-          title="Actions"
-          disabled={closing}
-        >
-          <EllipsisHorizontalIcon className="w-4 h-4" />
-        </button>
-        {open && (
-          <div className="absolute right-0 top-8 z-30 w-44 bg-white border border-gray-200 rounded-lg shadow-lg py-1 text-sm">
-            <Link
-              href={`/test-cycles/${cycle.id}`}
-              className="flex items-center gap-2 px-3 py-1.5 hover:bg-gray-50 text-gray-700"
-              onClick={() => setOpen(false)}
-            >
-              <EyeIcon className="w-3.5 h-3.5 shrink-0" /> View
-            </Link>
-            <button className="flex items-center gap-2 px-3 py-1.5 hover:bg-gray-50 text-gray-700 w-full text-left">
-              <PencilSquareIcon className="w-3.5 h-3.5 shrink-0" /> Edit
-            </button>
-            <button className="flex items-center gap-2 px-3 py-1.5 hover:bg-gray-50 text-gray-700 w-full text-left">
-              <DocumentDuplicateIcon className="w-3.5 h-3.5 shrink-0" /> Duplicate
-            </button>
-            {!isClosed && (
-              <>
-                <div className="border-t border-gray-100 my-1" />
-                <button
-                  onClick={handleClose}
-                  className="flex items-center gap-2 px-3 py-1.5 hover:bg-red-50 text-red-600 w-full text-left"
-                >
-                  <ArchiveBoxIcon className="w-3.5 h-3.5 shrink-0" /> Close Cycle
-                </button>
-              </>
-            )}
+    <>
+      {showEdit && (
+        <EditCycleDialog
+          cycle={cycle}
+          onClose={() => setShowEdit(false)}
+          onSaved={onClosed}
+        />
+      )}
+      <div className="relative" onClick={e => e.stopPropagation()}>
+        <div ref={ref}>
+          <button
+            onClick={() => setOpen(o => !o)}
+            className="p-1.5 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100"
+            title="Actions"
+            disabled={closing || duplicating}
+          >
+            <EllipsisHorizontalIcon className="w-4 h-4" />
+          </button>
+          {open && (
+            <div className="absolute right-0 top-8 z-30 w-44 bg-white border border-gray-200 rounded-lg shadow-lg py-1 text-sm">
+              <Link
+                href={`/test-cycles/${cycle.id}`}
+                className="flex items-center gap-2 px-3 py-1.5 hover:bg-gray-50 text-gray-700"
+                onClick={() => setOpen(false)}
+              >
+                <EyeIcon className="w-3.5 h-3.5 shrink-0" /> View
+              </Link>
+              <button
+                onClick={() => { setOpen(false); setShowEdit(true); }}
+                className="flex items-center gap-2 px-3 py-1.5 hover:bg-gray-50 text-gray-700 w-full text-left"
+              >
+                <PencilSquareIcon className="w-3.5 h-3.5 shrink-0" /> Edit
+              </button>
+              <button
+                onClick={handleDuplicate}
+                className="flex items-center gap-2 px-3 py-1.5 hover:bg-gray-50 text-gray-700 w-full text-left"
+              >
+                <DocumentDuplicateIcon className="w-3.5 h-3.5 shrink-0" /> Duplicate
+              </button>
+              {!isClosed && (
+                <>
+                  <div className="border-t border-gray-100 my-1" />
+                  <button
+                    onClick={handleClose}
+                    className="flex items-center gap-2 px-3 py-1.5 hover:bg-red-50 text-red-600 w-full text-left"
+                  >
+                    <ArchiveBoxIcon className="w-3.5 h-3.5 shrink-0" /> Close Cycle
+                  </button>
+                </>
+              )}
+            </div>
+          )}
+        </div>
+        {err && (
+          <div className="absolute right-0 top-10 z-40 w-64 bg-red-50 border border-red-200 text-red-700 text-xs rounded-lg px-3 py-2 shadow-lg">
+            {err}
+            <button onClick={() => setErr(null)} className="ml-2 underline">dismiss</button>
           </div>
         )}
       </div>
-      {err && (
-        <div className="absolute right-0 top-10 z-40 w-64 bg-red-50 border border-red-200 text-red-700 text-xs rounded-lg px-3 py-2 shadow-lg">
-          {err}
-          <button onClick={() => setErr(null)} className="ml-2 underline">dismiss</button>
-        </div>
-      )}
-    </div>
+    </>
   );
 }
 
@@ -184,12 +323,12 @@ function CycleCard({ cycle, onClosed }: { cycle: TestCycleSummary; onClosed: () 
         {STATUS_LABEL[status] ?? status}
       </span>
 
-      {/* Brand / framework tag */}
-      {cycle.brand && (
-        <span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold bg-brand-50 text-brand-700 border border-brand-100 shrink-0">
-          {cycle.brand}
+      {/* Brand tags */}
+      {cycle.brand && cycle.brand.split(",").map((b) => (
+        <span key={b} className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold bg-brand-50 text-brand-700 border border-brand-100 shrink-0">
+          {b.trim()}
         </span>
-      )}
+      ))}
 
       {/* Name — main clickable area */}
       <Link
@@ -240,11 +379,13 @@ function CycleRow({ cycle, onClosed }: { cycle: TestCycleSummary; onClosed: () =
         </Link>
       </td>
       <td className="py-2.5 px-2">
-        {cycle.brand && (
-          <span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold bg-brand-50 text-brand-700 border border-brand-100">
-            {cycle.brand}
-          </span>
-        )}
+        <div className="flex flex-wrap gap-1">
+          {cycle.brand && cycle.brand.split(",").map((b) => (
+            <span key={b} className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold bg-brand-50 text-brand-700 border border-brand-100">
+              {b.trim()}
+            </span>
+          ))}
+        </div>
       </td>
       <td className="py-2.5 px-2">
         <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_BADGE_CLASS[status] ?? "bg-gray-100 text-gray-600"}`}>
@@ -343,6 +484,7 @@ export default function TestCyclesPage() {
   const [view, setView]               = useState<"card" | "table">("card");
   const [groupBy, setGroupBy]         = useState<"none" | "status" | "month">("none");
   const [page, setPage]               = useState(1);
+  const [showCompleted, setShowCompleted] = useState(false);
 
   const user = getUser();
 
@@ -353,9 +495,15 @@ export default function TestCyclesPage() {
 
   useEffect(() => { reload(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Available brand options derived from data
+  // Available brand options — flatten comma-separated values from all cycles
   const brands = useMemo(
-    () => Array.from(new Set(cycles.map(c => c.brand).filter(Boolean) as string[])).sort(),
+    () => Array.from(
+      new Set(
+        cycles
+          .flatMap(c => c.brand ? c.brand.split(",").map(b => b.trim()) : [])
+          .filter(Boolean)
+      )
+    ).sort(),
     [cycles]
   );
 
@@ -367,7 +515,10 @@ export default function TestCyclesPage() {
       if (statusFilter !== "all") {
         if (statusFilter === "overdue" ? !isOverdue(c) : effectiveStatus(c) !== statusFilter) return false;
       }
-      if (brandFilter !== "all" && c.brand !== brandFilter) return false;
+      if (brandFilter !== "all") {
+        const cycleBrands = c.brand ? c.brand.split(",").map(b => b.trim()) : [];
+        if (!cycleBrands.includes(brandFilter)) return false;
+      }
       return true;
     });
     out = [...out].sort((a, b) => {
@@ -380,17 +531,27 @@ export default function TestCyclesPage() {
     return out;
   }, [cycles, search, statusFilter, brandFilter, sortBy, sortDir]);
 
+  // Split into active/in-progress vs completed — completed always goes to bottom section
+  const mainItems = useMemo(
+    () => filtered.filter(c => c.status !== "completed"),
+    [filtered]
+  );
+  const completedItems = useMemo(
+    () => filtered.filter(c => c.status === "completed"),
+    [filtered]
+  );
+
   // Reset page whenever filters/sort change
   useEffect(() => setPage(1), [search, statusFilter, brandFilter, sortBy, sortDir, groupBy]);
 
-  const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
-  const paged = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const totalPages = Math.ceil(mainItems.length / PAGE_SIZE);
+  const paged = mainItems.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
-  // Group the current page's items
+  // Group the current page's items (main section only)
   const groups = useMemo(() => {
     if (groupBy === "none") return [{ key: "", items: paged }];
     if (groupBy === "status") {
-      const order = ["overdue", "active", "planned", "completed"];
+      const order = ["overdue", "active", "planned"];
       const map = new Map<string, TestCycleSummary[]>();
       for (const c of paged) {
         const s = effectiveStatus(c);
@@ -580,7 +741,7 @@ export default function TestCyclesPage() {
             </div>
           </div>
 
-        ) : filtered.length === 0 ? (
+        ) : mainItems.length === 0 && completedItems.length === 0 ? (
           /* Empty state */
           <div className="text-center py-24 bg-white border border-gray-200 rounded-xl">
             <FunnelIcon className="w-10 h-10 text-gray-300 mx-auto mb-3" />
@@ -594,7 +755,7 @@ export default function TestCyclesPage() {
             </button>
           </div>
 
-        ) : groupBy !== "none" ? (
+        ) : mainItems.length === 0 ? null : groupBy !== "none" ? (
           /* ── Grouped view ── */
           <div className="space-y-5">
             {view === "card" ? (
@@ -694,9 +855,9 @@ export default function TestCyclesPage() {
               Showing{" "}
               <span className="font-medium text-gray-700">{(page - 1) * PAGE_SIZE + 1}</span>
               {" – "}
-              <span className="font-medium text-gray-700">{Math.min(page * PAGE_SIZE, filtered.length)}</span>
+              <span className="font-medium text-gray-700">{Math.min(page * PAGE_SIZE, mainItems.length)}</span>
               {" of "}
-              <span className="font-medium text-gray-700">{filtered.length}</span>
+              <span className="font-medium text-gray-700">{mainItems.length}</span>
             </p>
             <div className="flex items-center gap-1">
               <button
@@ -727,6 +888,56 @@ export default function TestCyclesPage() {
                 Next
               </button>
             </div>
+          </div>
+        )}
+
+        {/* ── Completed cycles section ────────────────────────────── */}
+        {!loading && completedItems.length > 0 && (
+          <div className="pt-2">
+            {/* Section header — always visible */}
+            <button
+              onClick={() => setShowCompleted(o => !o)}
+              className="flex items-center gap-2 w-full text-left py-2 px-1 mb-1 group/hdr"
+            >
+              {showCompleted
+                ? <ChevronDownIcon  className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+                : <ChevronRightIcon className="w-3.5 h-3.5 text-gray-400 shrink-0" />}
+              <CheckCircleIcon className="w-4 h-4 text-green-500 shrink-0" />
+              <span className="text-xs font-bold tracking-widest uppercase text-gray-500">Completed</span>
+              <span className="text-xs font-semibold px-1.5 py-0.5 rounded-full bg-green-100 text-green-700">
+                {completedItems.length}
+              </span>
+              <span className="text-xs text-gray-400 ml-1">
+                {showCompleted ? "— click to collapse" : "— click to expand"}
+              </span>
+            </button>
+
+            {showCompleted && (
+              view === "table" ? (
+                <div className="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm">
+                  <table className="w-full text-sm">
+                    <thead className="border-b border-gray-100 bg-gray-50">
+                      <tr>
+                        <th className="text-left py-2.5 pl-4 pr-2 text-xs font-semibold uppercase tracking-wider text-gray-500">Name</th>
+                        <th className="text-left py-2.5 px-2 text-xs font-semibold uppercase tracking-wider text-gray-500">Framework</th>
+                        <th className="text-left py-2.5 px-2 text-xs font-semibold uppercase tracking-wider text-gray-500">Status</th>
+                        <th className="text-left py-2.5 px-2 text-xs font-semibold uppercase tracking-wider text-gray-500">Date Range</th>
+                        <th className="text-left py-2.5 px-2 text-xs font-semibold uppercase tracking-wider text-gray-500">Progress</th>
+                        <th className="py-2.5 px-2" />
+                        <th className="py-2.5 pl-2 pr-3" />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {completedItems.map(c => <CycleRow key={c.id} cycle={c} onClosed={reload} />)}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div className="space-y-1.5 pl-5">
+                  {completedItems.map(c => <CycleCard key={c.id} cycle={c} onClosed={reload} />)}
+                </div>
+              )
+            )}
           </div>
         )}
 

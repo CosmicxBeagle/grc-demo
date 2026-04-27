@@ -242,7 +242,11 @@ export const threatsApi = {
 // Downloads a file from a backend export endpoint and triggers browser save.
 export async function downloadExport(path: string, filename: string) {
   const token = getToken();
+  // credentials: "include" ensures HttpOnly session cookies are forwarded for
+  // cookie-mode / SSO sessions. The X-Auth-Token header covers demo-token mode.
+  // Both must be present so the backend accepts whichever auth mechanism is active.
   const res = await fetch(`${BASE}${path}`, {
+    credentials: "include",
     headers: token ? { "X-Auth-Token": token } : {},
   });
   if (!res.ok) throw new Error("Export failed");
@@ -334,7 +338,7 @@ export const riskReviewsApi = {
   listCycles:     () =>
     client.get<RiskReviewCycle[]>("/risk-reviews/cycles"),
 
-  createCycle:    (data: { label: string; cycle_type: string; year?: number; scope_note?: string; min_score?: number; severities?: string }) =>
+  createCycle:    (data: { label: string; cycle_type: string; year?: number; scope_note?: string; min_score?: number; severities?: string; risk_ids_filter?: string; owner_ids_filter?: string }) =>
     client.post<RiskReviewCycle>("/risk-reviews/cycles", data),
 
   getCycle:       (id: number) =>
@@ -369,8 +373,10 @@ export const riskReviewsApi = {
   submitUpdate:   (requestId: number, data: { status_confirmed?: string; mitigation_progress?: string; notes?: string }) =>
     client.post<RiskReviewUpdate>(`/risk-reviews/requests/${requestId}/update`, data),
 
-  riskHistory:    (riskId: number) =>
-    client.get<RiskReviewUpdate[]>(`/risk-reviews/history/${riskId}`),
+  // Unified history: field changes + review submissions + GRC decisions, newest first.
+  // The legacy /risk-reviews/history/{id} endpoint is deprecated — do not add new callers.
+  riskUnifiedHistory: (riskId: number) =>
+    client.get<import("@/types").RiskHistoryEntry[]>(`/risks/${riskId}/history`),
 
   // 4C: GRC approval
   acceptUpdate:   (updateId: number) =>

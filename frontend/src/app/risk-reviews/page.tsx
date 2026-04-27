@@ -1,10 +1,10 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
 import AppShell from "@/components/AppShell";
-import { riskReviewsApi } from "@/lib/api";
+import { riskReviewsApi, risksApi, usersApi } from "@/lib/api";
 import { getUser } from "@/lib/auth";
-import type { RiskReviewCycle } from "@/types";
+import type { RiskReviewCycle, Risk, User } from "@/types";
 import {
   ArrowPathIcon,
   PlusIcon,
@@ -13,6 +13,7 @@ import {
   XCircleIcon,
   EnvelopeIcon,
   CalendarDaysIcon,
+  MagnifyingGlassIcon,
 } from "@heroicons/react/24/outline";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -51,6 +52,19 @@ function fmtDate(d?: string) {
   return new Date(d).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
 }
 
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+// Thresholds must match backend _score_tier / _severity_for_score: 20 / 15 / 9
+function scoreTier(likelihood: number, impact: number): { label: string; color: string } {
+  const s = (likelihood || 1) * (impact || 1);
+  if (s >= 20) return { label: "Critical", color: "bg-red-100 text-red-700" };
+  if (s >= 15) return { label: "High",     color: "bg-orange-100 text-orange-700" };
+  if (s >= 9)  return { label: "Medium",   color: "bg-yellow-100 text-yellow-700" };
+  return        { label: "Low",      color: "bg-green-100 text-green-700" };
+}
+
+type ScopeMode = "severity" | "owner" | "risks";
+
 // ── Create dialog ─────────────────────────────────────────────────────────────
 
 function CreateCycleDialog({
@@ -61,48 +75,157 @@ function CreateCycleDialog({
   onCreated: (c: RiskReviewCycle) => void;
 }) {
   const currentYear = new Date().getFullYear();
+
+  // ── basic form fields ──
   const [form, setForm] = useState({
     cycle_type: "ad_hoc",
     year:       String(currentYear),
     label:      "",
     scope_note: "",
   });
+
+  // ── scope mode ──
+  const [scopeMode, setScopeMode] = useState<ScopeMode>("severity");
+
+  // severity mode
   const [severities, setSeverities] = useState<SeverityValue[]>(["low", "medium", "high", "critical"]);
+
+  // owner/VP mode
+  const [selectedOwnerIds, setSelectedOwnerIds] = useState<Set<number>>(new Set());
+  const [selectedVps,      setSelectedVps]      = useState<Set<string>>(new Set());
+
+  // specific risks mode
+  const [selectedRiskIds, setSelectedRiskIds] = useState<Set<number>>(new Set());
+  const [riskSearch,      setRiskSearch]      = useState("");
+
+  // lazy-loaded data
+  const [risksList,    setRisksList]    = useState<Risk[]>([]);
+  const [usersList,    setUsersList]    = useState<User[]>([]);
+  const [dataLoading,  setDataLoading]  = useState(false);
+
   const [busy, setBusy] = useState(false);
   const [err,  setErr]  = useState("");
 
-  const toggleSeverity = (v: SeverityValue) => {
-    setSeverities(prev =>
-      prev.includes(v) ? prev.filter(s => s !== v) : [...prev, v]
-    );
-  };
+  // ── load risks + users when switching to owner/risk mode ──
+  useEffect(() => {
+    if ((scopeMode === "owner" || scopeMode === "risks") && risksList.length === 0 && !dataLoading) {
+      setDataLoading(true);
+      Promise.all([
+        risksApi.list({ limit: 500 }),
+        usersApi.list(),
+      ]).then(([rr, ur]) => {
+        setRisksList(rr.data.items);
+        setUsersList(ur.data);
+      }).catch(() => {}).finally(() => setDataLoading(false));
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scopeMode]);
 
+  // ── derived lists ──
+  const uniqueVps = useMemo(() => {
+    const vps = new Set<string>();
+    risksList.forEach(r => { if (r.owning_vp) vps.add(r.owning_vp); });
+    return [...vps].sort();
+  }, [risksList]);
+
+  const uniqueOwners = useMemo((): User[] => {
+    const seen = new Set<number>();
+    const out: User[] = [];
+    risksList.forEach(r => {
+      if (r.owner_id && !seen.has(r.owner_id)) {
+        const u = usersList.find(u => u.id === r.owner_id);
+        if (u) { seen.add(r.owner_id); out.push(u); }
+      }
+    });
+    return out.sort((a, b) => a.display_name.localeCompare(b.display_name));
+  }, [risksList, usersList]);
+
+  const filteredRisks = useMemo(() => {
+    const q = riskSearch.trim().toLowerCase();
+    return q ? risksList.filter(r => r.name.toLowerCase().includes(q)) : risksList;
+  }, [risksList, riskSearch]);
+
+  // ── label helpers ──
   const severityLabel = () => {
     if (severities.length === 4) return "All risks";
     if (severities.length === 0) return "None selected";
     return severities.map(s => s.charAt(0).toUpperCase() + s.slice(1)).join(", ");
   };
 
-  const autoLabel = () => {
-    const scopeTag = severityLabel();
-    if (form.cycle_type === "ad_hoc") return `Ad Hoc Review — ${scopeTag}`;
-    return `${CYCLE_LABELS[form.cycle_type] ?? form.cycle_type} ${form.year} — ${scopeTag}`;
+  const autoLabel = (): string => {
+    const base = form.cycle_type === "ad_hoc"
+      ? "Ad Hoc Review"
+      : `${CYCLE_LABELS[form.cycle_type] ?? form.cycle_type} ${form.year} Review`;
+    if (scopeMode === "severity") return `${base} — ${severityLabel()}`;
+    if (scopeMode === "owner")    return `${base} — ${selectedOwnerIds.size + selectedVps.size} owner(s)/VP(s)`;
+    return `${base} — ${selectedRiskIds.size} specific risk(s)`;
   };
 
   const label = form.label || autoLabel();
 
+  // ── toggle helpers ──
+  const toggleSeverity = (v: SeverityValue) =>
+    setSeverities(prev => prev.includes(v) ? prev.filter(s => s !== v) : [...prev, v]);
+
+  const toggleOwner = (id: number) =>
+    setSelectedOwnerIds(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+
+  const toggleVp = (vp: string) =>
+    setSelectedVps(prev => { const n = new Set(prev); n.has(vp) ? n.delete(vp) : n.add(vp); return n; });
+
+  const toggleRisk = (id: number) =>
+    setSelectedRiskIds(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+
+  // ── submit ──
   const submit = async () => {
-    if (severities.length === 0) { setErr("Select at least one severity level."); return; }
-    setBusy(true);
     setErr("");
+    let risk_ids_filter:  string | undefined;
+    let owner_ids_filter: string | undefined;
+    let severitiesStr:    string | undefined;
+
+    if (scopeMode === "severity") {
+      if (severities.length === 0) { setErr("Select at least one severity level."); return; }
+      severitiesStr = severities.join(",");
+    } else if (scopeMode === "risks") {
+      if (selectedRiskIds.size === 0) { setErr("Select at least one risk."); return; }
+      risk_ids_filter = [...selectedRiskIds].join(",");
+    } else {
+      if (selectedOwnerIds.size === 0 && selectedVps.size === 0) {
+        setErr("Select at least one owner or VP."); return;
+      }
+
+      if (selectedVps.size > 0) {
+        // VP selection → resolve to exact risk IDs where owning_vp matches.
+        // We can NOT use owner_ids_filter here because that would pull in ALL of
+        // that owner's risks, not just the ones under that VP.
+        const riskIds = new Set<number>();
+        for (const vp of selectedVps) {
+          risksList.forEach(r => { if (r.owning_vp === vp && r.owner_id) riskIds.add(r.id); });
+        }
+        // Also include individual owner selections, resolved to their specific risk IDs
+        for (const oid of selectedOwnerIds) {
+          risksList.forEach(r => { if (r.owner_id === oid) riskIds.add(r.id); });
+        }
+        if (riskIds.size === 0) { setErr("No owned risks found for the selected VP(s)."); return; }
+        risk_ids_filter = [...riskIds].join(",");
+      } else {
+        // Only individual owners selected → use owner_ids_filter (pulls all current + future risks)
+        owner_ids_filter = [...selectedOwnerIds].join(",");
+        severitiesStr    = "low,medium,high,critical";
+      }
+    }
+
+    setBusy(true);
     try {
       const res = await riskReviewsApi.createCycle({
-        label:      label,
-        cycle_type: form.cycle_type,
-        year:       form.cycle_type !== "ad_hoc" ? Number(form.year) : undefined,
-        scope_note: form.scope_note || undefined,
-        min_score:  0,
-        severities: severities.join(","),
+        label,
+        cycle_type:       form.cycle_type,
+        year:             form.cycle_type !== "ad_hoc" ? Number(form.year) : undefined,
+        scope_note:       form.scope_note || undefined,
+        min_score:        0,
+        severities:       severitiesStr,
+        risk_ids_filter,
+        owner_ids_filter,
       });
       onCreated(res.data);
     } catch {
@@ -112,13 +235,20 @@ function CreateCycleDialog({
     }
   };
 
+  // ── render ──
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg p-6">
-        <h2 className="text-lg font-semibold text-gray-900 mb-4">New Review Cycle</h2>
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl flex flex-col max-h-[90vh]">
 
-        <div className="space-y-4">
-          {/* Cycle type — label only */}
+        {/* Header */}
+        <div className="px-6 pt-6 pb-4 border-b border-gray-100">
+          <h2 className="text-lg font-semibold text-gray-900">New Review Cycle</h2>
+        </div>
+
+        {/* Scrollable body */}
+        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-5">
+
+          {/* Cycle type + year */}
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Cycle</label>
@@ -147,47 +277,228 @@ function CreateCycleDialog({
             )}
           </div>
 
-          {/* Severity — which risk severities to include */}
+          {/* Scope mode selector */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Risk Scope</label>
-            <div className="flex gap-2 flex-wrap">
-              {SEVERITY_OPTIONS.map(opt => {
-                const checked = severities.includes(opt.value);
+            <label className="block text-sm font-medium text-gray-700 mb-2">Scope Mode</label>
+            <div className="flex gap-2">
+              {(["severity", "owner", "risks"] as ScopeMode[]).map(m => {
+                const labels: Record<ScopeMode, string> = {
+                  severity: "By Severity",
+                  owner:    "By Owner / VP",
+                  risks:    "Specific Risks",
+                };
+                const active = scopeMode === m;
                 return (
                   <button
-                    key={opt.value}
+                    key={m}
                     type="button"
-                    onClick={() => { toggleSeverity(opt.value); setForm(f => ({ ...f, label: "" })); }}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-sm font-medium transition-all ${
-                      checked
-                        ? opt.color + " ring-2 ring-offset-1 ring-current"
-                        : "bg-white border-gray-200 text-gray-400 hover:border-gray-300"
+                    onClick={() => { setScopeMode(m); setErr(""); setForm(f => ({ ...f, label: "" })); }}
+                    className={`flex-1 py-2 px-3 rounded-lg border text-sm font-medium transition-all ${
+                      active
+                        ? "bg-brand-600 text-white border-brand-600"
+                        : "bg-white text-gray-600 border-gray-300 hover:border-brand-400 hover:text-brand-600"
                     }`}
                   >
-                    <span className={`w-3 h-3 rounded-sm border flex items-center justify-center shrink-0 ${
-                      checked ? "bg-current border-current" : "border-gray-300"
-                    }`}>
-                      {checked && (
-                        <svg className="w-2 h-2 text-white" fill="currentColor" viewBox="0 0 12 12">
-                          <path d="M10 3L5 8.5 2 5.5" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none"/>
-                        </svg>
-                      )}
-                    </span>
-                    {opt.label}
+                    {labels[m]}
                   </button>
                 );
               })}
             </div>
-            <p className="text-xs text-gray-400 mt-2">
-              {severities.length === 0
-                ? "No severities selected — no risks will be included."
-                : severities.length === 4
-                ? "All open risks with an assigned owner will be included."
-                : `Only ${severityLabel()} risks will be included.`}
-            </p>
           </div>
 
-          {/* Label (auto-filled, editable) */}
+          {/* ── By Severity ── */}
+          {scopeMode === "severity" && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Severity Levels</label>
+              <div className="flex gap-2 flex-wrap">
+                {SEVERITY_OPTIONS.map(opt => {
+                  const checked = severities.includes(opt.value);
+                  return (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      onClick={() => { toggleSeverity(opt.value); setForm(f => ({ ...f, label: "" })); }}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-sm font-medium transition-all ${
+                        checked
+                          ? opt.color + " ring-2 ring-offset-1 ring-current"
+                          : "bg-white border-gray-200 text-gray-400 hover:border-gray-300"
+                      }`}
+                    >
+                      <span className={`w-3 h-3 rounded-sm border flex items-center justify-center shrink-0 ${
+                        checked ? "bg-current border-current" : "border-gray-300"
+                      }`}>
+                        {checked && (
+                          <svg className="w-2 h-2 text-white" fill="currentColor" viewBox="0 0 12 12">
+                            <path d="M10 3L5 8.5 2 5.5" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none"/>
+                          </svg>
+                        )}
+                      </span>
+                      {opt.label}
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="text-xs text-gray-400 mt-2">
+                {severities.length === 0
+                  ? "No severities selected — no risks will be included."
+                  : severities.length === 4
+                  ? "All open risks with an assigned owner will be included."
+                  : `Only ${severityLabel()} risks will be included.`}
+              </p>
+            </div>
+          )}
+
+          {/* ── By Owner / VP ── */}
+          {scopeMode === "owner" && (
+            <div className="space-y-4">
+              {dataLoading ? (
+                <p className="text-sm text-gray-400">Loading owners…</p>
+              ) : (
+                <>
+                  {/* VPs */}
+                  {uniqueVps.length > 0 && (
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">By VP</p>
+                      <div className="grid grid-cols-2 gap-1.5 max-h-36 overflow-y-auto pr-1">
+                        {uniqueVps.map(vp => {
+                          const checked = selectedVps.has(vp);
+                          const count = risksList.filter(r => r.owning_vp === vp).length;
+                          return (
+                            <label
+                              key={vp}
+                              className={`flex items-center gap-2 px-3 py-2 rounded-lg border cursor-pointer text-sm transition-all ${
+                                checked
+                                  ? "border-brand-400 bg-brand-50 text-brand-800"
+                                  : "border-gray-200 hover:border-gray-300 text-gray-700"
+                              }`}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={() => { toggleVp(vp); setForm(f => ({ ...f, label: "" })); }}
+                                className="accent-brand-600 shrink-0"
+                              />
+                              <span className="truncate flex-1">{vp}</span>
+                              <span className="text-xs text-gray-400 shrink-0">{count}</span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Individual owners */}
+                  {uniqueOwners.length > 0 && (
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">Individual Owners</p>
+                      <div className="grid grid-cols-2 gap-1.5 max-h-36 overflow-y-auto pr-1">
+                        {uniqueOwners.map(u => {
+                          const checked = selectedOwnerIds.has(u.id);
+                          const count = risksList.filter(r => r.owner_id === u.id).length;
+                          return (
+                            <label
+                              key={u.id}
+                              className={`flex items-center gap-2 px-3 py-2 rounded-lg border cursor-pointer text-sm transition-all ${
+                                checked
+                                  ? "border-brand-400 bg-brand-50 text-brand-800"
+                                  : "border-gray-200 hover:border-gray-300 text-gray-700"
+                              }`}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={() => { toggleOwner(u.id); setForm(f => ({ ...f, label: "" })); }}
+                                className="accent-brand-600 shrink-0"
+                              />
+                              <span className="truncate flex-1">{u.display_name}</span>
+                              <span className="text-xs text-gray-400 shrink-0">{count}</span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {uniqueVps.length === 0 && uniqueOwners.length === 0 && (
+                    <p className="text-sm text-gray-400">No risks with assigned owners found.</p>
+                  )}
+
+                  <p className="text-xs text-gray-400">
+                    {selectedOwnerIds.size + selectedVps.size === 0
+                      ? "Select one or more owners or VPs to scope this cycle."
+                      : `${selectedOwnerIds.size} owner(s) + ${selectedVps.size} VP(s) selected — all their open risks will be included.`}
+                  </p>
+                </>
+              )}
+            </div>
+          )}
+
+          {/* ── Specific Risks ── */}
+          {scopeMode === "risks" && (
+            <div>
+              {dataLoading ? (
+                <p className="text-sm text-gray-400">Loading risks…</p>
+              ) : (
+                <>
+                  <div className="relative mb-2">
+                    <MagnifyingGlassIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                    <input
+                      type="text"
+                      placeholder="Search risks…"
+                      value={riskSearch}
+                      onChange={e => setRiskSearch(e.target.value)}
+                      className="w-full pl-9 pr-3 py-2 rounded-lg border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+                    />
+                  </div>
+
+                  <div className="border border-gray-200 rounded-lg max-h-56 overflow-y-auto divide-y divide-gray-100">
+                    {filteredRisks.length === 0 ? (
+                      <p className="text-sm text-gray-400 p-3">No risks found.</p>
+                    ) : filteredRisks.map(r => {
+                      const checked = selectedRiskIds.has(r.id);
+                      const tier = scoreTier(r.likelihood, r.impact);
+                      const ownerUser = usersList.find(u => u.id === r.owner_id);
+                      return (
+                        <label
+                          key={r.id}
+                          className={`flex items-start gap-3 px-3 py-2.5 cursor-pointer transition-colors ${
+                            checked ? "bg-brand-50" : "hover:bg-gray-50"
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => { toggleRisk(r.id); setForm(f => ({ ...f, label: "" })); }}
+                            className="accent-brand-600 mt-0.5 shrink-0"
+                          />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm text-gray-900 truncate">{r.name}</p>
+                            <div className="flex items-center gap-1.5 mt-0.5">
+                              <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${tier.color}`}>
+                                {tier.label}
+                              </span>
+                              <span className="text-xs text-gray-400">Score {(r.likelihood||1)*(r.impact||1)}</span>
+                              {ownerUser && (
+                                <span className="text-xs text-gray-400 truncate">· {ownerUser.display_name}</span>
+                              )}
+                            </div>
+                          </div>
+                        </label>
+                      );
+                    })}
+                  </div>
+
+                  <p className="text-xs text-gray-400 mt-2">
+                    {selectedRiskIds.size === 0
+                      ? "Check specific risks to include in this cycle."
+                      : `${selectedRiskIds.size} risk(s) selected.`}
+                  </p>
+                </>
+              )}
+            </div>
+          )}
+
+          {/* Label */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Label</label>
             <input
@@ -212,18 +523,21 @@ function CreateCycleDialog({
           </div>
         </div>
 
-        {err && <p className="mt-3 text-sm text-red-600">{err}</p>}
-
-        <div className="flex justify-end gap-3 mt-6">
-          <button onClick={onClose} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-900">Cancel</button>
-          <button
-            onClick={submit}
-            disabled={busy}
-            className="px-4 py-2 text-sm font-medium bg-brand-600 text-white rounded-lg hover:bg-brand-700 disabled:opacity-50"
-          >
-            {busy ? "Creating…" : "Create Cycle"}
-          </button>
+        {/* Footer */}
+        <div className="px-6 py-4 border-t border-gray-100">
+          {err && <p className="mb-3 text-sm text-red-600">{err}</p>}
+          <div className="flex justify-end gap-3">
+            <button onClick={onClose} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-900">Cancel</button>
+            <button
+              onClick={submit}
+              disabled={busy}
+              className="px-4 py-2 text-sm font-medium bg-brand-600 text-white rounded-lg hover:bg-brand-700 disabled:opacity-50"
+            >
+              {busy ? "Creating…" : "Create Cycle"}
+            </button>
+          </div>
         </div>
+
       </div>
     </div>
   );
@@ -336,7 +650,15 @@ export default function RiskReviewsPage() {
                           <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${statusBadge(cycle.status)}`}>
                             {cycle.status}
                           </span>
-                          {cycle.severities
+                          {cycle.risk_ids_filter ? (
+                            <span className="text-xs px-1.5 py-0.5 rounded border font-medium bg-purple-100 text-purple-700 border-purple-300">
+                              {cycle.risk_ids_filter.split(",").filter(Boolean).length} specific risks
+                            </span>
+                          ) : cycle.owner_ids_filter ? (
+                            <span className="text-xs px-1.5 py-0.5 rounded border font-medium bg-indigo-100 text-indigo-700 border-indigo-300">
+                              {cycle.owner_ids_filter.split(",").filter(Boolean).length} owner(s)
+                            </span>
+                          ) : cycle.severities
                             ? cycle.severities.split(",").map(s => s.trim()).filter(Boolean).map(s => {
                                 const opt = SEVERITY_OPTIONS.find(o => o.value === s);
                                 return opt ? (

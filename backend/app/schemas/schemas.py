@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field, model_validator
-from typing import Optional
+from typing import Optional, Any
 from datetime import datetime, date
 
 
@@ -531,7 +531,51 @@ class RiskAgingBuckets(BaseModel):
     field_90_180:  int = Field(0, alias="90_180")
     field_180_365: int = Field(0, alias="180_365")
     field_365_plus: int = Field(0, alias="365_plus")
-    model_config = {"populate_by_name": True}
+    model_config = {"populate_by_name": True, "ser_by_alias": True}
+
+class RiskSeverityBreakdown(BaseModel):
+    low:      int = 0   # inherent score 1–4
+    medium:   int = 0   # 5–9
+    high:     int = 0   # 10–14
+    critical: int = 0   # 15–25
+
+class RiskOwnerMetric(BaseModel):
+    name:      str
+    count:     int
+    avg_score: float
+
+class RiskManagedStatus(BaseModel):
+    new:                    int = 0
+    managed_with_dates:     int = 0
+    managed_without_dates:  int = 0
+    unmanaged:              int = 0
+    closed:                 int = 0
+
+class RiskTreatmentBreakdown(BaseModel):
+    mitigate: int = 0
+    accept:   int = 0
+    transfer: int = 0
+    avoid:    int = 0
+
+class RiskRemediationMetrics(BaseModel):
+    total_plans:          int = 0
+    in_progress:          int = 0
+    completed:            int = 0
+    on_hold:              int = 0
+    cancelled:            int = 0
+    milestones_total:     int = 0
+    milestones_completed: int = 0
+    milestones_overdue:   int = 0
+
+class RiskDepartmentMetric(BaseModel):
+    name:  str
+    count: int
+
+class RiskQuarterlyBucket(BaseModel):
+    quarter:  str
+    high:     int = 0
+    critical: int = 0
+    total:    int = 0
 
 class DashboardStats(BaseModel):
     total_controls: int
@@ -555,6 +599,19 @@ class DashboardStats(BaseModel):
     exception_approved: int = 0
     exception_expiring_soon: int = 0
     risk_aging: RiskAgingBuckets = RiskAgingBuckets()
+    # ── Risk analytics ────────────────────────────────────────────────────────
+    total_risks:        int   = 0
+    open_risks:         int   = 0
+    high_critical_risks: int  = 0
+    avg_risk_score:     float = 0.0
+    risk_severity:      RiskSeverityBreakdown     = RiskSeverityBreakdown()
+    risk_managed_status: RiskManagedStatus        = RiskManagedStatus()
+    risk_treatment:     RiskTreatmentBreakdown    = RiskTreatmentBreakdown()
+    risk_owners:        list[RiskOwnerMetric]     = []
+    risk_vps:           list[RiskOwnerMetric]     = []
+    risk_departments:   list[RiskDepartmentMetric] = []
+    risk_quarterly:     list[RiskQuarterlyBucket] = []
+    risk_remediation:   RiskRemediationMetrics    = RiskRemediationMetrics()
 
 
 # ── Control Exceptions ─────────────────────────────────────────────────────
@@ -938,28 +995,53 @@ class ApprovalWorkflowCreate(BaseModel):
     entity_id:   int
 
 
+# ── Risk History ──────────────────────────────────────────────────────────────
+
+class RiskHistoryOut(BaseModel):
+    """Unified shape returned by GET /risks/{id}/history."""
+    id:             Any         # int for new entries, "rev_N" for legacy review updates
+    source:         str         # "history" | "review"
+    event_type:     str         # created | field_changed | review_submitted | review_accepted | review_challenged | challenge_responded
+    actor_name:     Optional[str] = None
+    summary:        str         = ""
+    old_status:     Optional[str] = None
+    new_status:     Optional[str] = None
+    changed_fields: Optional[dict] = None
+    notes:          Optional[str] = None
+    # Review-specific extras (only present on source=review entries)
+    mitigation_progress:        Optional[str] = None
+    grc_review_status:          Optional[str] = None
+    grc_challenge_reason:       Optional[str] = None
+    owner_challenge_response:   Optional[str] = None
+    created_at:     Optional[str] = None
+
+
 # ── Risk Review System ────────────────────────────────────────────────────────
 
 class RiskReviewCycleCreate(BaseModel):
-    label:      str
-    cycle_type: str               # monthly | quarterly | yearly | ad_hoc
-    year:       Optional[int] = None
-    scope_note: Optional[str] = None
-    min_score:  int = 0           # legacy fallback
-    severities: Optional[str] = None  # comma-sep: low,medium,high,critical
+    label:            str
+    cycle_type:       str               # monthly | quarterly | yearly | ad_hoc
+    year:             Optional[int] = None
+    scope_note:       Optional[str] = None
+    min_score:        int = 0           # legacy fallback
+    severities:       Optional[str] = None  # comma-sep: low,medium,high,critical
+    risk_ids_filter:  Optional[str] = None  # comma-sep risk IDs; overrides severity scope
+    owner_ids_filter: Optional[str] = None  # comma-sep user IDs; scope to specific owners
 
 class RiskReviewCycleOut(BaseModel):
-    id:           int
-    label:        str
-    cycle_type:   str
-    year:         Optional[int]     = None
-    min_score:    int               = 0
-    severities:   Optional[str]     = None
-    status:       str               # draft | active | closed
-    scope_note:   Optional[str]     = None
-    created_by:   Optional[int]     = None
-    launched_at:  Optional[datetime] = None
-    closed_at:    Optional[datetime] = None
+    id:               int
+    label:            str
+    cycle_type:       str
+    year:             Optional[int]     = None
+    min_score:        int               = 0
+    severities:       Optional[str]     = None
+    risk_ids_filter:  Optional[str]     = None
+    owner_ids_filter: Optional[str]     = None
+    status:           str               # draft | active | closed
+    scope_note:       Optional[str]     = None
+    created_by:       Optional[int]     = None
+    launched_at:      Optional[datetime] = None
+    closed_at:        Optional[datetime] = None
     created_at:   datetime
     # Computed counts (populated by the router)
     request_count: int = 0

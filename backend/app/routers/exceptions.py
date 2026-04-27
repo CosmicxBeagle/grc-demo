@@ -31,7 +31,7 @@ def _get_or_404(repo: ControlExceptionRepository, exception_id: int):
 
 def _snap(e) -> dict:
     return {"status": e.status, "control_id": e.control_id,
-            "reason": e.reason, "risk_level": e.risk_level,
+            "justification": e.justification, "risk_level": e.risk_level,
             "approved_by": e.approved_by}
 
 
@@ -61,7 +61,7 @@ def create_exception(
     audit_service.emit(db,
         "EXCEPTION_CREATED", actor=current_user,
         resource_type="Exception", resource_id=result.id,
-        resource_name=result.reason[:80] if result.reason else str(result.id),
+        resource_name=result.justification[:80] if result.justification else str(result.id),
         after=_snap(result), request=request,
     )
     return result

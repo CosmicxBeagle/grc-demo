@@ -32,6 +32,7 @@ from app.schemas.schemas import (
 )
 import app.services.risk_review_service as svc
 from app.services import risk_review_grc_service
+from app.services import risk_history_service as rh
 
 router = APIRouter(prefix="/risk-reviews", tags=["risk-reviews"])
 
@@ -68,14 +69,16 @@ def create_cycle(
     user: User    = Depends(require_permission("risks:write")),
 ):
     cycle = svc.create_cycle(
-        db         = db,
-        label      = body.label,
-        cycle_type = body.cycle_type,
-        year       = body.year,
-        scope_note = body.scope_note,
-        created_by = user.id,
-        min_score  = body.min_score,
-        severities = body.severities,
+        db               = db,
+        label            = body.label,
+        cycle_type       = body.cycle_type,
+        year             = body.year,
+        scope_note       = body.scope_note,
+        created_by       = user.id,
+        min_score        = body.min_score,
+        severities       = body.severities,
+        risk_ids_filter  = body.risk_ids_filter,
+        owner_ids_filter = body.owner_ids_filter,
     )
     out = RiskReviewCycleOut.model_validate(cycle)
     return out
@@ -165,7 +168,7 @@ def submit_update(
     db:   Session = Depends(get_db),
     user: User    = Depends(require_permission("risks:review_update")),
 ):
-    return svc.submit_update(
+    upd = svc.submit_update(
         db                  = db,
         request_id          = request_id,
         submitted_by_id     = user.id,
@@ -173,6 +176,14 @@ def submit_update(
         mitigation_progress = body.mitigation_progress,
         notes               = body.notes,
     )
+    rh.log_event(
+        db, upd.risk_id, "review_submitted", user,
+        summary=f"Review update submitted by {user.display_name}",
+        new_status=body.status_confirmed,
+        notes=body.notes,
+    )
+    db.commit()
+    return upd
 
 
 # ── 4C: GRC approval step ─────────────────────────────────────────────────────
@@ -185,6 +196,11 @@ def grc_accept_update(
 ):
     """GRC accepts a submitted risk review update."""
     upd = risk_review_grc_service.accept_update(db, update_id, user)
+    rh.log_event(
+        db, upd.risk_id, "review_accepted", user,
+        summary=f"Review update accepted by GRC ({user.display_name})",
+        new_status=upd.status_confirmed,
+    )
     db.commit()
     return {"id": upd.id, "grc_review_status": upd.grc_review_status}
 
@@ -198,6 +214,11 @@ def grc_challenge_update(
 ):
     """GRC challenges a submitted risk review update."""
     upd = risk_review_grc_service.challenge_update(db, update_id, user, data.reason)
+    rh.log_event(
+        db, upd.risk_id, "review_challenged", user,
+        summary=f"Review update challenged by GRC ({user.display_name})",
+        notes=data.reason,
+    )
     db.commit()
     return {"id": upd.id, "grc_review_status": upd.grc_review_status}
 
@@ -211,11 +232,21 @@ def owner_respond_to_challenge(
 ):
     """Risk owner responds to a GRC challenge."""
     upd = risk_review_grc_service.respond_to_challenge(db, update_id, user, data.response)
+    rh.log_event(
+        db, upd.risk_id, "challenge_responded", user,
+        summary=f"Owner responded to GRC challenge ({user.display_name})",
+        notes=data.response,
+    )
     db.commit()
     return {"id": upd.id, "owner_responded_at": upd.owner_responded_at.isoformat() if upd.owner_responded_at else None}
 
 
 # ── History ───────────────────────────────────────────────────────────────────
+# DEPRECATED: returns only RiskReviewUpdate rows (legacy shape).
+# Prefer GET /risks/{risk_id}/history which returns the unified event log
+# (field changes + review submissions + GRC decisions) via risk_history_service.
+# Kept here for backward-compat with any existing callers; do not add new
+# consumers — route them to the risks router endpoint instead.
 
 @router.get("/history/{risk_id}", response_model=list[RiskReviewUpdateOut])
 def risk_history(

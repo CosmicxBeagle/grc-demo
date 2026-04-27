@@ -60,24 +60,40 @@ def readiness():
             overall = "degraded"
 
     # ── Evidence storage ──────────────────────────────────────────────────────
-    evidence_dir = settings.evidence_upload_dir
-    try:
-        import pathlib
-        p = pathlib.Path(evidence_dir)
-        if not p.exists():
-            checks["evidence_storage"] = {"status": "error", "detail": f"Path does not exist: {evidence_dir}"}
+    # Probe whichever backend is active: Azure Blob when configured, local FS otherwise.
+    if settings.azure_storage_account:
+        try:
+            from azure.identity import DefaultAzureCredential
+            from azure.storage.blob import BlobServiceClient
+            account_url = f"https://{settings.azure_storage_account}.blob.core.windows.net"
+            blob_svc = BlobServiceClient(account_url=account_url, credential=DefaultAzureCredential())
+            container = settings.azure_storage_container if hasattr(settings, "azure_storage_container") else "evidence"
+            blob_svc.get_container_client(container).get_container_properties()
+            checks["evidence_storage"] = {
+                "status": "ok",
+                "detail": f"Azure Blob — {settings.azure_storage_account}/{container}",
+            }
+        except Exception as exc:
+            checks["evidence_storage"] = {"status": "error", "detail": str(exc)}
+            overall = "not_ready"   # Blob failure is hard — uploads would be broken
+    else:
+        evidence_dir = settings.evidence_upload_dir
+        try:
+            import pathlib
+            p = pathlib.Path(evidence_dir)
+            if not p.exists():
+                checks["evidence_storage"] = {"status": "error", "detail": f"Path does not exist: {evidence_dir}"}
+                if overall == "ready":
+                    overall = "degraded"
+            else:
+                test_file = p / ".healthcheck"
+                test_file.write_text("ok")
+                test_file.unlink()
+                checks["evidence_storage"] = {"status": "ok", "detail": str(p.resolve())}
+        except Exception as exc:
+            checks["evidence_storage"] = {"status": "error", "detail": str(exc)}
             if overall == "ready":
                 overall = "degraded"
-        else:
-            # Check writability
-            test_file = p / ".healthcheck"
-            test_file.write_text("ok")
-            test_file.unlink()
-            checks["evidence_storage"] = {"status": "ok", "detail": str(p.resolve())}
-    except Exception as exc:
-        checks["evidence_storage"] = {"status": "error", "detail": str(exc)}
-        if overall == "ready":
-            overall = "degraded"
 
     status_code = 200 if overall in ("ready", "degraded") else 503
     return JSONResponse(

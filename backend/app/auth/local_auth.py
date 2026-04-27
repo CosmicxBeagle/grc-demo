@@ -122,7 +122,9 @@ def _get_user_from_demo_token(token: str, db: Session) -> User:
     user = db.query(User).filter(User.id == payload["user_id"]).first()
     if not user:
         raise HTTPException(status_code=401, detail="User not found")
-    if user.deactivated_at is not None:
+    # Check both fields: status covers UI deactivations; deactivated_at covers
+    # SCIM-provisioned deactivations that set the timestamp.
+    if user.status == "inactive" or user.deactivated_at is not None:
         raise HTTPException(status_code=401, detail="Account deactivated")
     return user
 

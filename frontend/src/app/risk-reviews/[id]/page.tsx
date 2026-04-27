@@ -684,7 +684,15 @@ export default function CycleDetailPage({ params }: { params: Promise<{ id: stri
             {cycle.launched_at && (
               <span className="text-sm text-gray-400">· Active since {fmtDate(cycle.launched_at)}</span>
             )}
-            {selectedSeverities.map(s => (
+            {cycle.risk_ids_filter ? (
+              <span className="text-xs px-2 py-0.5 rounded border font-medium bg-purple-100 text-purple-700 border-purple-300">
+                {cycle.risk_ids_filter.split(",").filter(Boolean).length} specific risks
+              </span>
+            ) : cycle.owner_ids_filter ? (
+              <span className="text-xs px-2 py-0.5 rounded border font-medium bg-indigo-100 text-indigo-700 border-indigo-300">
+                {cycle.owner_ids_filter.split(",").filter(Boolean).length} owner(s) · all severities
+              </span>
+            ) : selectedSeverities.length > 0 && selectedSeverities.map(s => (
               <span key={s} className={`text-xs px-2 py-0.5 rounded border font-medium capitalize ${severityColors[s] ?? "bg-gray-100 text-gray-600"}`}>
                 {s}
               </span>

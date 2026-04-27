@@ -223,6 +223,7 @@ class ControlService:
 
 class TestCycleService:
     def __init__(self, db: Session):
+        self.db   = db
         self.repo = TestCycleRepository(db)
 
     def list_cycles(self):
@@ -262,7 +263,17 @@ class TestCycleService:
 
     def close_cycle(self, cycle_id: int):
         from datetime import datetime as dt
-        cycle = self.get_cycle(cycle_id)
+        from app.models.models import TestCycle as TestCycleModel
+        # Lock the row for the duration of this transaction so concurrent
+        # requests cannot both pass the status guard and double-close.
+        cycle = (
+            self.db.query(TestCycleModel)
+            .filter(TestCycleModel.id == cycle_id)
+            .with_for_update()
+            .first()
+        )
+        if not cycle:
+            raise HTTPException(status_code=404, detail="Test cycle not found")
         if cycle.status == "completed":
             raise HTTPException(status_code=422, detail="Cycle is already closed.")
         incomplete = [
@@ -427,6 +438,7 @@ class EvidenceService:
 
 class DashboardService:
     def __init__(self, db: Session):
+        self.db = db
         self.control_repo = ControlRepository(db)
         self.cycle_repo = TestCycleRepository(db)
         self.assign_repo = AssignmentRepository(db)
@@ -490,6 +502,13 @@ class DashboardService:
         for d in self.deficiency_repo.get_all():
             def_counts[d.status] = def_counts.get(d.status, 0) + 1
 
+        # Fetch all risks once for all analytics
+        all_risks = self.risk_repo.get_all(limit=10000)[0]
+        open_risks = [r for r in all_risks if r.status != "closed"]
+        scores = [(r.likelihood or 3) * (r.impact or 3) for r in open_risks]
+        high_critical_count = sum(1 for s in scores if s >= 10)
+        avg_score = round(sum(scores) / len(scores), 1) if scores else 0.0
+
         return {
             "total_controls": len(all_controls),
             "active_controls": sum(1 for c in all_controls if c.status == "active"),
@@ -508,7 +527,20 @@ class DashboardService:
             "deficiency_remediated": def_counts.get("remediated", 0),
             "deficiency_risk_accepted": def_counts.get("risk_accepted", 0),
             "pci_testing": self._pci_testing_breakdown(all_controls),
-            "risk_aging": self._risk_aging_breakdown(self.risk_repo.get_all()[0]),
+            "risk_aging": self._risk_aging_breakdown(all_risks),
+            # ── Risk analytics ─────────────────────────────────────────────
+            "total_risks":         len(all_risks),
+            "open_risks":          len(open_risks),
+            "high_critical_risks": high_critical_count,
+            "avg_risk_score":      avg_score,
+            "risk_severity":       self._risk_severity_breakdown(all_risks),
+            "risk_managed_status": self._risk_managed_status(all_risks),
+            "risk_treatment":      self._risk_treatment_breakdown(all_risks),
+            "risk_owners":         self._risk_owner_metrics(all_risks),
+            "risk_vps":            self._risk_vp_metrics(all_risks),
+            "risk_departments":    self._risk_department_breakdown(all_risks),
+            "risk_quarterly":      self._risk_quarterly_trends(all_risks),
+            "risk_remediation":    self._risk_remediation_metrics(),
             **self._exception_stats(),
         }
 
@@ -546,6 +578,163 @@ class DashboardService:
             else:
                 buckets["365_plus"] += 1
         return buckets
+
+    def _risk_severity_breakdown(self, risks):
+        """Bucket open risks by inherent score (likelihood × impact)."""
+        low = medium = high = critical = 0
+        for r in risks:
+            if r.status == "closed":
+                continue
+            score = (r.likelihood or 3) * (r.impact or 3)
+            if score <= 4:
+                low += 1
+            elif score <= 9:
+                medium += 1
+            elif score <= 14:
+                high += 1
+            else:
+                critical += 1
+        return {"low": low, "medium": medium, "high": high, "critical": critical}
+
+    def _risk_managed_status(self, risks):
+        """Count of risks per managed-status value."""
+        VALID = {"new", "managed_with_dates", "managed_without_dates", "unmanaged", "closed"}
+        counts: dict = {k: 0 for k in VALID}
+        for r in risks:
+            key = r.status if r.status in VALID else "new"
+            counts[key] += 1
+        return counts
+
+    def _risk_treatment_breakdown(self, risks):
+        """Count open risks per treatment strategy."""
+        counts = {"mitigate": 0, "accept": 0, "transfer": 0, "avoid": 0}
+        for r in risks:
+            if r.status == "closed":
+                continue
+            key = r.treatment if r.treatment in counts else "mitigate"
+            counts[key] += 1
+        return counts
+
+    def _risk_owner_metrics(self, risks):
+        """Top 10 risk owners (open risks only) with avg inherent score."""
+        from collections import defaultdict
+        data: dict = defaultdict(lambda: {"count": 0, "score_sum": 0})
+        for r in risks:
+            if r.status == "closed":
+                continue
+            name = r.owner or "Unassigned"
+            data[name]["count"] += 1
+            data[name]["score_sum"] += (r.likelihood or 3) * (r.impact or 3)
+        result = [
+            {"name": n, "count": d["count"], "avg_score": round(d["score_sum"] / d["count"], 1)}
+            for n, d in data.items()
+        ]
+        return sorted(result, key=lambda x: x["count"], reverse=True)[:10]
+
+    def _risk_vp_metrics(self, risks):
+        """Top VPs by open risk count with avg inherent score."""
+        from collections import defaultdict
+        data: dict = defaultdict(lambda: {"count": 0, "score_sum": 0})
+        for r in risks:
+            if r.status == "closed":
+                continue
+            vp = r.owning_vp or "Unassigned"
+            data[vp]["count"] += 1
+            data[vp]["score_sum"] += (r.likelihood or 3) * (r.impact or 3)
+        result = [
+            {"name": vp, "count": d["count"], "avg_score": round(d["score_sum"] / d["count"], 1)}
+            for vp, d in data.items()
+        ]
+        return sorted(result, key=lambda x: x["count"], reverse=True)[:10]
+
+    def _risk_department_breakdown(self, risks):
+        """Open risk count per department (top 10)."""
+        from collections import defaultdict
+        counts: dict = defaultdict(int)
+        for r in risks:
+            if r.status == "closed":
+                continue
+            counts[r.department or "Unassigned"] += 1
+        result = [{"name": n, "count": c} for n, c in counts.items()]
+        return sorted(result, key=lambda x: x["count"], reverse=True)[:10]
+
+    def _risk_quarterly_trends(self, risks):
+        """
+        Last 8 quarters: count of risks identified/created in each quarter
+        broken down by high (score 10-14) and critical (score ≥ 15).
+        """
+        from datetime import date as date_type
+        from collections import OrderedDict
+
+        today = date_type.today()
+
+        def _quarter_label(d) -> str:
+            q = (d.month - 1) // 3 + 1
+            return f"Q{q} {d.year}"
+
+        # Build ordered list of 8 quarter labels, oldest first
+        quarters = []
+        y, m = today.year, today.month
+        for _ in range(8):
+            q = (m - 1) // 3 + 1
+            quarters.append(f"Q{q} {y}")
+            m -= 3
+            if m <= 0:
+                m += 12
+                y -= 1
+        quarters = list(reversed(quarters))
+
+        buckets: dict = OrderedDict(
+            (q, {"quarter": q, "high": 0, "critical": 0, "total": 0})
+            for q in quarters
+        )
+
+        for r in risks:
+            ref = r.date_identified or (r.created_at.date() if r.created_at else None)
+            if not ref:
+                continue
+            label = _quarter_label(ref)
+            if label not in buckets:
+                continue
+            score = (r.likelihood or 3) * (r.impact or 3)
+            buckets[label]["total"] += 1
+            if score >= 15:
+                buckets[label]["critical"] += 1
+            elif score >= 10:
+                buckets[label]["high"] += 1
+
+        return list(buckets.values())
+
+    def _risk_remediation_metrics(self):
+        """Treatment plan and milestone completion/overdue stats."""
+        from datetime import date as date_type
+        from app.models.models import TreatmentPlan, TreatmentMilestone
+        today = date_type.today()
+
+        plans = self.db.query(TreatmentPlan).all()
+        milestones = self.db.query(TreatmentMilestone).all()
+
+        plan_status = {"in_progress": 0, "completed": 0, "on_hold": 0, "cancelled": 0}
+        for p in plans:
+            key = p.status if p.status in plan_status else "in_progress"
+            plan_status[key] += 1
+
+        milestones_completed = sum(1 for m in milestones if m.status == "completed")
+        milestones_overdue   = sum(
+            1 for m in milestones
+            if m.status not in ("completed",) and m.due_date and m.due_date < today
+        )
+
+        return {
+            "total_plans":          len(plans),
+            "in_progress":          plan_status["in_progress"],
+            "completed":            plan_status["completed"],
+            "on_hold":              plan_status["on_hold"],
+            "cancelled":            plan_status["cancelled"],
+            "milestones_total":     len(milestones),
+            "milestones_completed": milestones_completed,
+            "milestones_overdue":   milestones_overdue,
+        }
 
 
 # ── Deficiency Service ─────────────────────────────────────────────────────

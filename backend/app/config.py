@@ -43,6 +43,12 @@ class Settings(BaseSettings):
     azure_storage_account: str = ""
     azure_storage_container: str = "evidence"
 
+    # ── Azure Application Insights ────────────────────────────────────────────
+    # Paste the full connection string from your App Insights resource.
+    # Leave blank to disable — structured JSON logs to stdout still work.
+    # Env var: APPINSIGHTS_CONNECTION_STRING
+    appinsights_connection_string: str = ""
+
     # ── Email (Risk Review notifications) ────────────────────────────────────
     # Leave blank to disable sending — emails will be logged to console only.
     smtp_host: str = ""

@@ -68,6 +68,8 @@ const ENTITY_LINK = (wf: ApprovalWorkflow) => {
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
+const QUEUE_PAGE_SIZE = 10;
+
 type Tab = "queue" | "approvals";
 
 export default function MyWorkPage() {
@@ -76,11 +78,12 @@ export default function MyWorkPage() {
   // ── Queue state ─────────────────────────────────────────────────────────────
   const [items,      setItems]      = useState<WorkItem[]>([]);
   const [queueLoad,  setQueueLoad]  = useState(true);
+  const [expanded,   setExpanded]   = useState<Record<string, boolean>>({});
 
   // ── Approvals state ─────────────────────────────────────────────────────────
-  const [workflows,  setWorkflows]  = useState<ApprovalWorkflow[]>([]);
-  const [appLoad,    setAppLoad]    = useState(true);
-  const [expanded,   setExpanded]   = useState<number | null>(null);
+  const [workflows,      setWorkflows]      = useState<ApprovalWorkflow[]>([]);
+  const [appLoad,        setAppLoad]        = useState(true);
+  const [expandedWf,     setExpandedWf]     = useState<number | null>(null);
 
   // ── Shared state ─────────────────────────────────────────────────────────────
   const [tab,        setTab]        = useState<Tab>("queue");
@@ -220,7 +223,10 @@ export default function MyWorkPage() {
             {!queueLoad && urgencyOrder.map(u => {
               const group = grouped[u];
               if (group.length === 0) return null;
-              const colors = URGENCY_COLORS[u];
+              const colors   = URGENCY_COLORS[u];
+              const showAll  = expanded[u] ?? false;
+              const visible  = showAll ? group : group.slice(0, QUEUE_PAGE_SIZE);
+              const hidden   = group.length - QUEUE_PAGE_SIZE;
               return (
                 <section key={u} className={`border border-l-4 rounded-xl overflow-hidden ${colors.section} ${colors.accent}`}>
                   <div className="px-5 py-3 border-b border-inherit bg-white/60 flex items-center justify-between">
@@ -230,7 +236,7 @@ export default function MyWorkPage() {
                     </span>
                   </div>
                   <ul className="bg-white divide-y divide-gray-100">
-                    {group.map((item, idx) => (
+                    {visible.map((item, idx) => (
                       <li key={`${item.entity_type}-${item.entity_id}-${idx}`} className="px-5 py-3 flex items-center justify-between gap-4">
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
@@ -257,6 +263,18 @@ export default function MyWorkPage() {
                       </li>
                     ))}
                   </ul>
+                  {group.length > QUEUE_PAGE_SIZE && (
+                    <div className="px-5 py-2.5 border-t border-inherit bg-white/40 text-center">
+                      <button
+                        onClick={() => setExpanded(prev => ({ ...prev, [u]: !prev[u] }))}
+                        className={`text-xs font-medium hover:underline ${colors.header}`}
+                      >
+                        {showAll
+                          ? "Show less ▲"
+                          : `Show ${hidden} more ▼`}
+                      </button>
+                    </div>
+                  )}
                 </section>
               );
             })}
@@ -293,15 +311,15 @@ export default function MyWorkPage() {
               <div className="space-y-3">
                 {workflows.map(wf => {
                   const currentStep = wf.steps.find(s => s.step_order === wf.current_step);
-                  const isOpen = expanded === wf.id;
+                  const isOpen = expandedWf === wf.id;
 
                   return (
                     <div key={wf.id} className="bg-white border border-gray-200 rounded-xl overflow-hidden">
                       <div
                         role="button"
                         tabIndex={0}
-                        onClick={() => setExpanded(prev => prev === wf.id ? null : wf.id)}
-                        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") setExpanded(prev => prev === wf.id ? null : wf.id); }}
+                        onClick={() => setExpandedWf(prev => prev === wf.id ? null : wf.id)}
+                        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") setExpandedWf(prev => prev === wf.id ? null : wf.id); }}
                         className="w-full text-left px-5 py-4 hover:bg-gray-50 transition-colors cursor-pointer"
                       >
                         <div className="flex items-center justify-between">

@@ -76,7 +76,9 @@ class Settings(BaseSettings):
 
     @property
     def demo_login_enabled(self) -> bool:
-        return self.app_env == "local" and self.demo_auth_enabled
+        # Allowed in local and any non-production environment (e.g. sandbox/staging).
+        # Production is blocked at startup by the security guard in main.py.
+        return self.app_env != "production" and self.demo_auth_enabled
 
     @property
     def api_docs_enabled(self) -> bool:

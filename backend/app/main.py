@@ -44,14 +44,14 @@ if settings.app_env != "local":
             "Generate one with: python -c \"import secrets; print(secrets.token_urlsafe(48))\""
         )
 
-    # 2. DEMO_AUTH_ENABLED — must be false outside local.  demo auth bypasses
-    #    all password/IdP checks and is a development convenience only.
-    if settings.demo_auth_enabled:
+    # 2. DEMO_AUTH_ENABLED — must be false in production.  Sandbox / staging
+    #    environments may legitimately run without an IdP (no SSO yet), so
+    #    demo auth is permitted for any APP_ENV except "production".
+    if settings.app_env == "production" and settings.demo_auth_enabled:
         raise RuntimeError(
-            "FATAL: DEMO_AUTH_ENABLED=true is not permitted outside local environments. "
+            "FATAL: DEMO_AUTH_ENABLED=true is not permitted in production. "
             "Demo auth allows login with any username and no password. "
-            "Set DEMO_AUTH_ENABLED=false before deploying. "
-            f"Current APP_ENV={settings.app_env!r}."
+            "Set DEMO_AUTH_ENABLED=false before deploying to production."
         )
 
     # 3. CORS_ORIGINS — must not contain localhost or wildcard in non-local envs.

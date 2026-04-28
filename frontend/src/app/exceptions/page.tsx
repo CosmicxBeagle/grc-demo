@@ -53,9 +53,19 @@ interface FormState {
   control_id: string;
   title: string;
   exception_type: ExceptionType;
-  justification: string;
-  compensating_control: string;
+  // submitter info
+  submitter_name: string;
+  submitter_email: string;
+  // extended intake
+  system_name: string;
+  security_poc: string;
   risk_level: string;
+  regulatory_scope: string;
+  policy_for_exception: string;
+  justification: string;
+  risk_to_business: string;
+  compensating_control: string;
+  business_owner_email: string;
   expiry_date: string;
 }
 
@@ -63,11 +73,22 @@ const BLANK: FormState = {
   control_id: "",
   title: "",
   exception_type: "exception",
-  justification: "",
-  compensating_control: "",
+  submitter_name: "",
+  submitter_email: "",
+  system_name: "",
+  security_poc: "",
   risk_level: "high",
+  regulatory_scope: "",
+  policy_for_exception: "",
+  justification: "",
+  risk_to_business: "",
+  compensating_control: "",
+  business_owner_email: "",
   expiry_date: "",
 };
+
+const inputCls = "w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500";
+const labelCls = "block text-xs font-medium text-gray-500 mb-1";
 
 function ExceptionModal({
   onClose,
@@ -81,19 +102,28 @@ function ExceptionModal({
   const [form, setForm] = useState<FormState>(BLANK);
   const [saving, setSaving] = useState(false);
 
+  const f = (key: keyof FormState) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) =>
+    setForm(prev => ({ ...prev, [key]: e.target.value }));
+
   const save = async () => {
     if (!form.control_id || !form.title || !form.justification) return;
     setSaving(true);
     try {
       const res = await exceptionsApi.create({
-        control_id: Number(form.control_id),
-        title: form.title,
-        exception_type: form.exception_type,
-        justification: form.justification,
+        control_id:           Number(form.control_id),
+        title:                form.title,
+        exception_type:       form.exception_type,
+        system_name:          form.system_name          || null,
+        security_poc:         form.security_poc         || null,
+        policy_for_exception: form.policy_for_exception || null,
+        justification:        form.justification,
+        risk_to_business:     form.risk_to_business     || null,
         compensating_control: form.compensating_control || null,
-        risk_level: form.risk_level,
-        expiry_date: form.expiry_date || null,
-        requested_by: userId ?? null,
+        business_owner_email: form.business_owner_email || null,
+        regulatory_scope:     form.regulatory_scope     || null,
+        risk_level:           form.risk_level,
+        expiry_date:          form.expiry_date           || null,
+        requested_by:         userId ?? null,
       });
       onSaved(res.data);
     } finally {
@@ -103,101 +133,119 @@ function ExceptionModal({
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xl max-h-[90vh] overflow-y-auto">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 sticky top-0 bg-white z-10">
           <h2 className="font-semibold text-gray-900">New Exception / Risk Acceptance</h2>
           <button onClick={onClose}><XMarkIcon className="w-5 h-5 text-gray-400 hover:text-gray-600" /></button>
         </div>
 
-        <div className="px-6 py-5 space-y-4">
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1">Control ID (numeric)</label>
-              <input
-                type="number"
-                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
-                value={form.control_id}
-                onChange={(e) => setForm({ ...form, control_id: e.target.value })}
-                placeholder="e.g. 12"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1">Type</label>
-              <select
-                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
-                value={form.exception_type}
-                onChange={(e) => setForm({ ...form, exception_type: e.target.value as ExceptionType })}
-              >
-                <option value="exception">Exception</option>
-                <option value="risk_acceptance">Risk Acceptance</option>
-                <option value="compensating_control">Compensating Control</option>
-              </select>
+        <div className="px-6 py-5 space-y-5">
+
+          {/* ── Contact Information ── */}
+          <div>
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Contact Information of Submitter</p>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className={labelCls}>Full Name</label>
+                <input className={inputCls} value={form.submitter_name} onChange={f("submitter_name")} placeholder="Your full name" />
+              </div>
+              <div>
+                <label className={labelCls}>Email Address</label>
+                <input type="email" className={inputCls} value={form.submitter_email} onChange={f("submitter_email")} placeholder="your@email.com" />
+              </div>
             </div>
           </div>
 
+          {/* ── Exception Details ── */}
           <div>
-            <label className="block text-xs font-medium text-gray-500 mb-1">Title *</label>
-            <input
-              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
-              value={form.title}
-              onChange={(e) => setForm({ ...form, title: e.target.value })}
-              placeholder="Brief description of the exception"
-            />
-          </div>
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Exception Details</p>
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className={labelCls}>Control ID (numeric)</label>
+                  <input type="number" className={inputCls} value={form.control_id} onChange={f("control_id")} placeholder="e.g. 12" />
+                </div>
+                <div>
+                  <label className={labelCls}>Type</label>
+                  <select className={inputCls} value={form.exception_type} onChange={f("exception_type")}>
+                    <option value="exception">Exception</option>
+                    <option value="risk_acceptance">Risk Acceptance</option>
+                    <option value="compensating_control">Compensating Control</option>
+                  </select>
+                </div>
+              </div>
 
-          <div>
-            <label className="block text-xs font-medium text-gray-500 mb-1">Business Justification *</label>
-            <textarea
-              rows={3}
-              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm resize-none"
-              value={form.justification}
-              onChange={(e) => setForm({ ...form, justification: e.target.value })}
-              placeholder="Why can't this control be implemented? What is the business reason?"
-            />
-          </div>
+              <div>
+                <label className={labelCls}>Title *</label>
+                <input className={inputCls} value={form.title} onChange={f("title")} placeholder="Brief description of the exception" />
+              </div>
 
-          <div>
-            <label className="block text-xs font-medium text-gray-500 mb-1">Compensating Control</label>
-            <textarea
-              rows={2}
-              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm resize-none"
-              value={form.compensating_control}
-              onChange={(e) => setForm({ ...form, compensating_control: e.target.value })}
-              placeholder="What alternative mitigates the risk while the exception is active?"
-            />
-          </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className={labelCls}>Security Point of Contact</label>
+                  <input className={inputCls} value={form.security_poc} onChange={f("security_poc")} placeholder="Name or email" />
+                </div>
+                <div>
+                  <label className={labelCls}>Exception Severity</label>
+                  <select className={inputCls} value={form.risk_level} onChange={f("risk_level")}>
+                    <option value="critical">Critical</option>
+                    <option value="high">High</option>
+                    <option value="medium">Medium</option>
+                    <option value="low">Low</option>
+                  </select>
+                </div>
+              </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1">Residual Risk Level</label>
-              <select
-                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
-                value={form.risk_level}
-                onChange={(e) => setForm({ ...form, risk_level: e.target.value })}
-              >
-                <option value="critical">Critical</option>
-                <option value="high">High</option>
-                <option value="medium">Medium</option>
-                <option value="low">Low</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1">Expiry Date</label>
-              <input
-                type="date"
-                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
-                value={form.expiry_date}
-                onChange={(e) => setForm({ ...form, expiry_date: e.target.value })}
-              />
+              <div>
+                <label className={labelCls}>Is the system or application in scope for any regulatory compliances?</label>
+                <select className={inputCls} value={form.regulatory_scope} onChange={f("regulatory_scope")}>
+                  <option value="">— Select —</option>
+                  <option value="yes">Yes</option>
+                  <option value="no">No</option>
+                  <option value="partial">Partial</option>
+                </select>
+              </div>
+
+              <div>
+                <label className={labelCls}>Name of System or Application</label>
+                <input className={inputCls} value={form.system_name} onChange={f("system_name")} placeholder="System or application name" />
+              </div>
+
+              <div>
+                <label className={labelCls}>Policy for Exception</label>
+                <input className={inputCls} value={form.policy_for_exception} onChange={f("policy_for_exception")} placeholder="Specific policy or control requirement" />
+              </div>
+
+              <div>
+                <label className={labelCls}>Reason for Exception *</label>
+                <textarea rows={3} className={inputCls + " resize-none"} value={form.justification} onChange={f("justification")} placeholder="Why compliance is not feasible" />
+              </div>
+
+              <div>
+                <label className={labelCls}>Risk to Business</label>
+                <textarea rows={2} className={inputCls + " resize-none"} value={form.risk_to_business} onChange={f("risk_to_business")} placeholder="Risk introduced from exception" />
+              </div>
+
+              <div>
+                <label className={labelCls}>Compensating Controls</label>
+                <textarea rows={2} className={inputCls + " resize-none"} value={form.compensating_control} onChange={f("compensating_control")} placeholder="Controls in place to mitigate risk" />
+              </div>
+
+              <div>
+                <label className={labelCls}>Business Owner Email</label>
+                <input type="email" className={inputCls} value={form.business_owner_email} onChange={f("business_owner_email")} placeholder="Email of business approver for the exception" />
+              </div>
+
+              <div>
+                <label className={labelCls}>Expiry Date</label>
+                <input type="date" className={inputCls} value={form.expiry_date} onChange={f("expiry_date")} />
+              </div>
             </div>
           </div>
         </div>
 
-        <div className="flex justify-end gap-3 px-6 py-4 border-t border-gray-100">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50"
-          >
+        <div className="flex justify-end gap-3 px-6 py-4 border-t border-gray-100 sticky bottom-0 bg-white">
+          <button onClick={onClose} className="px-4 py-2 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50">
             Cancel
           </button>
           <button

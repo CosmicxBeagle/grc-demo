@@ -205,7 +205,7 @@ class Deficiency(Base):
     description = Column(Text)
     severity = Column(String(20), nullable=False, default="high")  # critical/high/medium/low
     remediation_plan = Column(Text)
-    status = Column(String(30), nullable=False, default="open")  # open/in_remediation/remediated/risk_accepted
+    status = Column(String(30), nullable=False, default="open")  # open/in_remediation/remediated/validated/risk_accepted
     due_date = Column(Date)
     linked_risk_id = Column(Integer, ForeignKey("risks.id"), nullable=True, index=True)
 
@@ -548,6 +548,14 @@ class ControlException(Base):
     title          = Column(String(200), nullable=False)
     exception_type = Column(String(30), nullable=False, default="exception")
     # exception | risk_acceptance | compensating_control
+
+    # Extended intake fields
+    system_name           = Column(Text, nullable=True)          # name of system / application
+    policy_for_exception  = Column(Text, nullable=True)          # specific policy or control requirement
+    risk_to_business      = Column(Text, nullable=True)          # business risk description
+    security_poc          = Column(String(200), nullable=True)   # security point of contact
+    business_owner_email  = Column(String(200), nullable=True)   # business approver email
+    regulatory_scope      = Column(String(50),  nullable=True)   # yes | no | partial
 
     justification        = Column(Text, nullable=False)
     compensating_control = Column(Text)   # what alternative mitigates the risk

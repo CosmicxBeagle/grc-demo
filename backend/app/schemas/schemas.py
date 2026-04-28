@@ -593,6 +593,7 @@ class DashboardStats(BaseModel):
     deficiency_open: int
     deficiency_in_remediation: int
     deficiency_remediated: int
+    deficiency_validated: int = 0
     deficiency_risk_accepted: int
     pci_testing: PciTestingBreakdown = PciTestingBreakdown()
     exception_pending: int = 0
@@ -623,6 +624,13 @@ EXCEPTION_RISK_LEVELS = ["critical", "high", "medium", "low"]
 class ControlExceptionBase(BaseModel):
     title: str
     exception_type: str = "exception"
+    # Extended intake fields
+    system_name:          Optional[str] = None
+    policy_for_exception: Optional[str] = None
+    risk_to_business:     Optional[str] = None
+    security_poc:         Optional[str] = None
+    business_owner_email: Optional[str] = None
+    regulatory_scope:     Optional[str] = None  # yes | no | partial
     justification: str
     compensating_control: Optional[str] = None
     risk_level: str = "high"
@@ -639,6 +647,12 @@ class ApproverNotesRequest(BaseModel):
 class ControlExceptionUpdate(BaseModel):
     title: Optional[str] = None
     exception_type: Optional[str] = None
+    system_name:          Optional[str] = None
+    policy_for_exception: Optional[str] = None
+    risk_to_business:     Optional[str] = None
+    security_poc:         Optional[str] = None
+    business_owner_email: Optional[str] = None
+    regulatory_scope:     Optional[str] = None
     justification: Optional[str] = None
     compensating_control: Optional[str] = None
     risk_level: Optional[str] = None

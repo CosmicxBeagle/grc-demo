@@ -3,10 +3,10 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.models.models import Base, AuditLog, User
-from app.services import services as services_module
+from app.services import audit_service
 
 
-def test_audit_log_commit_does_not_commit_caller_session(monkeypatch):
+def test_audit_emit_does_not_commit_caller_session(monkeypatch):
     engine = create_engine(
         "sqlite://",
         connect_args={"check_same_thread": False},
@@ -14,7 +14,8 @@ def test_audit_log_commit_does_not_commit_caller_session(monkeypatch):
     )
     Base.metadata.create_all(engine)
     Session = sessionmaker(bind=engine)
-    monkeypatch.setattr(services_module, "SessionLocal", Session)
+    # emit() opens its own isolated session via app.db.database.SessionLocal
+    monkeypatch.setattr("app.db.database.SessionLocal", Session)
 
     seed = Session()
     seed_user = User(
@@ -33,7 +34,7 @@ def test_audit_log_commit_does_not_commit_caller_session(monkeypatch):
     actor = caller_db.query(User).filter(User.email == "audit@example.com").first()
     actor.display_name = "Changed But Uncommitted"
 
-    services_module.AuditService(caller_db).log("TEST_AUDIT", actor=actor)
+    audit_service.emit(caller_db, "TEST_AUDIT", actor=actor)
 
     verifier = Session()
     persisted_user = verifier.query(User).filter(User.email == "audit@example.com").first()

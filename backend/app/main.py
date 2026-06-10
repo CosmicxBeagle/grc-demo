@@ -9,6 +9,7 @@ from app.models import models  # noqa: F401 — registers all models with Base
 from app.routers import auth, users, controls, test_cycles, evidence, dashboard, deficiencies, assets, threats, risks, exports, exceptions, approvals, risk_reviews, treatment_plans, audit_logs, notifications, checklist, deficiency_milestones, health, my_work, telemetry, scim
 from app.routers.treatment_plans import treatment_escalation_router
 from app.middleware.correlation import CorrelationMiddleware
+from app.middleware.security_headers import SecurityHeadersMiddleware
 from app.middleware.session_refresh import session_refresh_middleware
 
 # ── Startup security guards ───────────────────────────────────────────────────
@@ -116,6 +117,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.add_middleware(CorrelationMiddleware)
+app.add_middleware(SecurityHeadersMiddleware)
 app.middleware("http")(session_refresh_middleware)
 
 # ── Register routers ──────────────────────────────────────────────────────────

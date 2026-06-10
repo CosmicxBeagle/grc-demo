@@ -35,7 +35,8 @@ const SEVERITY_COLORS: Record<DeficiencySeverity, string> = {
 const STATUS_COLORS: Record<DeficiencyStatus, string> = {
   open:            "text-red-600",
   in_remediation:  "text-orange-600",
-  remediated:      "text-green-600",
+  remediated:      "text-blue-600",
+  validated:       "text-green-600",
   risk_accepted:   "text-gray-500",
 };
 
@@ -43,10 +44,11 @@ const STATUS_LABELS: Record<DeficiencyStatus, string> = {
   open:            "Open",
   in_remediation:  "In Remediation",
   remediated:      "Remediated",
+  validated:       "Validated",
   risk_accepted:   "Risk Accepted",
 };
 
-const ALL_STATUSES = ["open", "in_remediation", "remediated", "risk_accepted"] as const;
+const ALL_STATUSES = ["open", "in_remediation", "remediated", "validated", "risk_accepted"] as const;
 
 const SEVERITY_LIKELIHOOD: Record<DeficiencySeverity, number> = {
   critical: 5, high: 4, medium: 3, low: 2,
@@ -581,7 +583,7 @@ function DeficiencyDrawer({
             <section>
               <div className="flex items-center justify-between mb-3">
                 <h3 className="text-sm font-semibold text-gray-800">Re-Test Requirement</h3>
-                <span className="text-xs text-blue-500">Required before closure</span>
+                <span className="text-xs text-blue-500">Required before validation</span>
               </div>
 
               {deficiency.retest_waived ? (
@@ -592,7 +594,7 @@ function DeficiencyDrawer({
               ) : deficiency.retest_assignment_id ? (
                 <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-3 text-sm text-blue-700">
                   Re-test assignment <strong>#{deficiency.retest_assignment_id}</strong> created.
-                  Assignment must pass before deficiency can be closed.
+                  Assignment must pass before deficiency can be validated.
                 </div>
               ) : isManager ? (
                 <div className="flex gap-2">
@@ -606,7 +608,7 @@ function DeficiencyDrawer({
                   </button>
                 </div>
               ) : (
-                <p className="text-sm text-gray-400 italic">Re-test not yet assigned. Contact your GRC manager.</p>
+                <p className="text-sm text-gray-400 italic">Re-test not yet assigned. Contact your GRC manager before validation.</p>
               )}
             </section>
           )}
@@ -810,6 +812,7 @@ function DeficienciesPageContent() {
     open:           deficiencies.filter(d => d.status === "open").length,
     in_remediation: deficiencies.filter(d => d.status === "in_remediation").length,
     remediated:     deficiencies.filter(d => d.status === "remediated").length,
+    validated:      deficiencies.filter(d => d.status === "validated").length,
     risk_accepted:  deficiencies.filter(d => d.status === "risk_accepted").length,
   };
 
@@ -850,7 +853,7 @@ function DeficienciesPageContent() {
         />
 
         {/* Summary KPI cards */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
           <KpiCard
             label="Open"
             value={counts.open}
@@ -866,8 +869,14 @@ function DeficienciesPageContent() {
           <KpiCard
             label="Remediated"
             value={counts.remediated}
-            colorScheme="low"
+            colorScheme="info"
             onClick={() => setFilter(filter === "remediated" ? "all" : "remediated")}
+          />
+          <KpiCard
+            label="Validated"
+            value={counts.validated}
+            colorScheme="low"
+            onClick={() => setFilter(filter === "validated" ? "all" : "validated")}
           />
           <KpiCard
             label="Risk Accepted"

@@ -28,7 +28,8 @@ const SEVERITY_COLORS: Record<DeficiencySeverity, string> = {
 const DEFICIENCY_STATUS_COLORS: Record<DeficiencyStatus, string> = {
   open:            "text-red-600",
   in_remediation:  "text-orange-600",
-  remediated:      "text-green-600",
+  remediated:      "text-blue-600",
+  validated:       "text-green-600",
   risk_accepted:   "text-gray-500",
 };
 
@@ -36,6 +37,7 @@ const DEFICIENCY_STATUS_LABELS: Record<DeficiencyStatus, string> = {
   open:            "Open",
   in_remediation:  "In Remediation",
   remediated:      "Remediated",
+  validated:       "Validated",
   risk_accepted:   "Risk Accepted",
 };
 

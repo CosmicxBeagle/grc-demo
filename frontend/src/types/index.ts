@@ -74,7 +74,7 @@ export type AssignmentStatus =
   | "complete"
   | "failed";
 
-export type DeficiencyStatus = "open" | "in_remediation" | "remediated" | "risk_accepted";
+export type DeficiencyStatus = "open" | "in_remediation" | "remediated" | "validated" | "risk_accepted";
 export type DeficiencySeverity = "critical" | "high" | "medium" | "low";
 
 export interface RiskSummary {
@@ -591,6 +591,7 @@ export interface DashboardStats {
   deficiency_open: number;
   deficiency_in_remediation: number;
   deficiency_remediated: number;
+  deficiency_validated: number;
   deficiency_risk_accepted: number;
   pci_testing: PciTestingBreakdown;
   exception_pending: number;
@@ -755,5 +756,4 @@ export interface AuditLogEntry {
   ip_address:    string | null;
   request_id:    string | null;
 }
-
 

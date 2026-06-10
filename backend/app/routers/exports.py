@@ -195,7 +195,7 @@ def export_deficiencies(request: Request, db: Session = Depends(get_db), current
 
     STATUS_LABEL = {
         "open": "Open", "in_remediation": "In Remediation",
-        "remediated": "Remediated", "risk_accepted": "Risk Accepted",
+        "remediated": "Remediated", "validated": "Validated", "risk_accepted": "Risk Accepted",
     }
 
     for i, d in enumerate(deficiencies):

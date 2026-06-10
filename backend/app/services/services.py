@@ -525,6 +525,7 @@ class DashboardService:
             "deficiency_open": def_counts.get("open", 0),
             "deficiency_in_remediation": def_counts.get("in_remediation", 0),
             "deficiency_remediated": def_counts.get("remediated", 0),
+            "deficiency_validated": def_counts.get("validated", 0),
             "deficiency_risk_accepted": def_counts.get("risk_accepted", 0),
             "pci_testing": self._pci_testing_breakdown(all_controls),
             "risk_aging": self._risk_aging_breakdown(all_risks),
@@ -763,7 +764,14 @@ class DeficiencyService:
         d = self.repo.get_by_id(deficiency_id)
         if not d:
             raise HTTPException(status_code=404, detail="Deficiency not found")
-        return self.repo.update(d, data.model_dump(exclude_unset=True))
+        update_data = data.model_dump(exclude_unset=True)
+        if "status" in update_data:
+            next_status = update_data["status"]
+            if next_status == "validated" and d.closed_at is None:
+                update_data["closed_at"] = datetime.utcnow()
+            elif next_status != "validated":
+                update_data["closed_at"] = None
+        return self.repo.update(d, update_data)
 
     def delete(self, deficiency_id: int):
         d = self.repo.get_by_id(deficiency_id)

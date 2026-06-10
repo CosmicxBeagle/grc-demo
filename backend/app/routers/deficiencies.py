@@ -71,8 +71,8 @@ def update_deficiency(
     svc = DeficiencyService(db)
     existing = svc.get(deficiency_id)
     before = _snap(existing)
-    # 4A: block closure if re-test has not been done or waived
-    if data.status == "remediated":
+    # 4A: block final validation if re-test has not been done or waived
+    if data.status == "validated":
         assert_can_close(existing)
     result = svc.update(deficiency_id, data)
     audit_service.emit(db,

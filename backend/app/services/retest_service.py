@@ -14,7 +14,7 @@ from app.repositories.repositories import AssignmentRepository
 def assert_can_close(deficiency: Deficiency) -> None:
     """
     Raise 422 if the deficiency requires a re-test that hasn't been done or waived.
-    Call this before any status change to 'remediated'.
+    Call this before any status change to 'validated'.
     """
     if not deficiency.retest_required:
         return
@@ -24,7 +24,7 @@ def assert_can_close(deficiency: Deficiency) -> None:
         raise HTTPException(
             status_code=422,
             detail=(
-                "A re-test assignment is required before this deficiency can be closed. "
+                "A re-test assignment is required before this deficiency can be validated. "
                 "Create a re-test assignment or waive the re-test requirement with a documented reason."
             ),
         )
@@ -36,7 +36,7 @@ def assert_can_close(deficiency: Deficiency) -> None:
             detail=(
                 f"The re-test assignment (#{retest.id}) has not yet passed "
                 f"(current status: {retest.status}). "
-                "Complete the re-test or waive the requirement."
+                "Complete the re-test or waive the requirement before validation."
             ),
         )
 

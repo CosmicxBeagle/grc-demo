@@ -54,7 +54,7 @@ export const SEVERITY_HEX: Record<Severity, string> = {
 export type AppStatus =
   | "open" | "pending" | "pending_approval"
   | "approved" | "rejected" | "expired"
-  | "in_remediation" | "draft"
+  | "in_remediation" | "validated" | "draft"
   | "not_started" | "in_progress" | "needs_review" | "complete" | "failed"
   | "planned" | "active" | "completed" | "inactive";
 
@@ -66,6 +66,7 @@ export const STATUS_BADGE: Record<AppStatus, string> = {
   rejected:         "bg-red-100 text-red-600",
   expired:          "bg-gray-100 text-gray-500",
   in_remediation:   "bg-orange-100 text-orange-700",
+  validated:        "bg-emerald-100 text-emerald-700",
   draft:            "bg-gray-100 text-gray-600",
   not_started:      "bg-gray-100 text-gray-600",
   in_progress:      "bg-blue-100 text-blue-700",
@@ -86,6 +87,7 @@ export const STATUS_LABEL: Record<AppStatus, string> = {
   rejected:         "Rejected",
   expired:          "Expired",
   in_remediation:   "In Remediation",
+  validated:        "Validated",
   draft:            "Draft",
   not_started:      "Not Started",
   in_progress:      "In Progress",
